@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
 
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -9,6 +9,13 @@ const openai = process.env.OPENAI_API_KEY
 const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN
 const META_PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+const SUPABASE_SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE
+
+const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+  : null
 
 // GET handler para verificação do webhook
 export async function GET(request: NextRequest) {
@@ -32,25 +39,26 @@ export async function POST(request: NextRequest) {
     const message = change?.messages?.[0]
     const from = message?.from as string | undefined
     const text = message?.text?.body as string | undefined
+    const audioId = message?.audio?.id as string | undefined
 
-    if (!from || !text) {
+    if (!from || (!text && !audioId)) {
       return NextResponse.json({ success: true })
     }
 
-    if (!supabase) {
+    if (!supabaseAdmin) {
       console.warn('Supabase não está configurado')
       return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 })
     }
 
     // Encontrar ou criar usuário baseado no número
-    let { data: user } = await supabase
+    let { data: user } = await supabaseAdmin
       .from('users')
       .select('*')
       .eq('email', from)
       .single()
 
     if (!user) {
-      const { data: newUser, error: createError } = await supabase
+      const { data: newUser, error: createError } = await supabaseAdmin
         .from('users')
         .insert([{ name: `User ${from}`, email: from }])
         .select()
@@ -63,7 +71,13 @@ export async function POST(request: NextRequest) {
       user = newUser
     }
 
-    const response = await processMessage(text, user.id)
+    const content = text || (await transcribeAudio(audioId))
+    if (!content) {
+      await sendMetaMessage(from, 'Não consegui ler sua mensagem. Tente enviar em texto.')
+      return NextResponse.json({ success: true })
+    }
+
+    const response = await processMessage(content, user.id)
     await sendMetaMessage(from, response)
 
     return NextResponse.json({ success: true })
@@ -120,14 +134,14 @@ async function processMessage(message: string, userId: string): Promise<string> 
 }
 
 async function saveTransaction(data: any, userId: string) {
-  if (!supabase) {
+  if (!supabaseAdmin) {
     console.warn('Supabase não está configurado')
     return
   }
 
   try {
     // Criar transação diretamente (sem tabela categories separada)
-    await supabase
+    await supabaseAdmin
       .from('transactions')
       .insert([{
         amount: data.amount,
@@ -148,13 +162,13 @@ async function handleQuery(message: string, userId: string): Promise<string> {
 
   if (lowerMessage.includes('saldo') || lowerMessage.includes('quanto tenho')) {
     // Calcular saldo
-    const { data: incomes } = await supabase
+    const { data: incomes } = await supabaseAdmin
       .from('transactions')
       .select('amount')
       .eq('user_id', userId)
       .eq('type', 'income')
 
-    const { data: expenses } = await supabase
+    const { data: expenses } = await supabaseAdmin
       .from('transactions')
       .select('amount')
       .eq('user_id', userId)
@@ -171,7 +185,7 @@ async function handleQuery(message: string, userId: string): Promise<string> {
     // Resumo mensal
     const currentMonth = new Date().toISOString().slice(0, 7) // YYYY-MM
 
-    const { data: transactions } = await supabase
+    const { data: transactions } = await supabaseAdmin
       .from('transactions')
       .select('amount, type')
       .eq('user_id', userId)
@@ -208,4 +222,33 @@ async function sendMetaMessage(to: string, body: string) {
       text: { body }
     })
   })
+}
+
+async function transcribeAudio(audioId?: string): Promise<string | null> {
+  if (!audioId || !META_ACCESS_TOKEN || !openai) return null
+
+  // 1) Buscar URL da mídia
+  const mediaRes = await fetch(`https://graph.facebook.com/v20.0/${audioId}`, {
+    headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` }
+  })
+  if (!mediaRes.ok) return null
+  const mediaJson = await mediaRes.json()
+  const mediaUrl = mediaJson?.url as string | undefined
+  if (!mediaUrl) return null
+
+  // 2) Baixar o áudio
+  const audioRes = await fetch(mediaUrl, {
+    headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` }
+  })
+  if (!audioRes.ok) return null
+  const buffer = Buffer.from(await audioRes.arrayBuffer())
+
+  // 3) Transcrever com OpenAI
+  const file = new File([buffer], 'audio.ogg', { type: 'audio/ogg' })
+  const transcription = await openai.audio.transcriptions.create({
+    file,
+    model: 'whisper-1'
+  })
+
+  return transcription.text || null
 }
