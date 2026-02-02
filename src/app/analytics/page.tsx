@@ -13,7 +13,8 @@ interface Transaction {
   id: string
   amount: number
   type: 'income' | 'expense'
-  category: string
+  category_id?: string | null
+  categories?: { name: string } | null
   description: string
   date: string
 }
@@ -29,6 +30,7 @@ export default function AnalyticsPage() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [search, setSearch] = useState('')
+  const [currency, setCurrency] = useState('BRL')
 
   const dateRange = useMemo(() => {
     if (month) {
@@ -50,8 +52,19 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     if (authLoading || !userId) return
+    fetchProfileCurrency()
     fetchData()
   }, [dateFilter, dateRange.start, dateRange.end, search, authLoading, userId])
+
+  const fetchProfileCurrency = async () => {
+    if (!supabase || !userId) return
+    const { data } = await supabase
+      .from('users')
+      .select('currency')
+      .eq('id', userId)
+      .single()
+    if (data?.currency) setCurrency(data.currency)
+  }
 
   const fetchData = async () => {
     if (!supabase || !userId) return
@@ -59,7 +72,7 @@ export default function AnalyticsPage() {
     try {
       let query = supabase
         .from('transactions')
-        .select('*')
+        .select('id, amount, type, description, date, category_id, categories(name)')
         .eq('user_id', userId)
       
       if (dateRange.start || dateRange.end) {
@@ -82,7 +95,7 @@ export default function AnalyticsPage() {
 
       if (search.trim()) {
         const term = search.trim()
-        query = query.or(`category.ilike.%${term}%,description.ilike.%${term}%`)
+        query = query.or(`categories.name.ilike.%${term}%,description.ilike.%${term}%`)
       }
 
       const { data, error } = await query.order('date', { ascending: false })
@@ -90,15 +103,16 @@ export default function AnalyticsPage() {
       if (!error && data) {
         setTransactions(data)
         
-        const income = data.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
-        const expense = data.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
+        const income = data.filter(t => t.type === 'income').reduce((sum, t) => sum + Number(t.amount), 0)
+        const expense = data.filter(t => t.type === 'expense').reduce((sum, t) => sum + Number(t.amount), 0)
         setTotalIncome(income)
         setTotalExpense(expense)
 
         // Calculate category breakdown
         const categories: Record<string, number> = {}
         data.forEach(t => {
-          categories[t.category] = (categories[t.category] || 0) + t.amount
+          const name = t.categories?.name || 'Outros'
+          categories[name] = (categories[name] || 0) + Number(t.amount)
         })
         setCategoryData(categories)
       }
@@ -123,17 +137,17 @@ export default function AnalyticsPage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
             <p className="text-gray-400 text-sm mb-2">Receitas</p>
-            <p className="text-3xl font-bold text-green-500">R$ {totalIncome.toFixed(2)}</p>
+            <p className="text-3xl font-bold text-green-500">{formatCurrency(totalIncome, currency)}</p>
             <p className="text-xs text-gray-500 mt-2">Período selecionado</p>
           </div>
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
             <p className="text-gray-400 text-sm mb-2">Despesas</p>
-            <p className="text-3xl font-bold text-red-500">R$ {totalExpense.toFixed(2)}</p>
+            <p className="text-3xl font-bold text-red-500">{formatCurrency(totalExpense, currency)}</p>
             <p className="text-xs text-gray-500 mt-2">Período selecionado</p>
           </div>
           <div className="bg-gray-900 rounded-2xl border border-amber-600/30 p-6">
             <p className="text-amber-600 text-sm mb-2 font-medium">Saldo</p>
-            <p className="text-3xl font-bold text-amber-600">R$ {balance.toFixed(2)}</p>
+            <p className="text-3xl font-bold text-amber-600">{formatCurrency(balance, currency)}</p>
             <p className="text-xs text-gray-500 mt-2">Receitas - Despesas</p>
           </div>
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
@@ -231,7 +245,7 @@ export default function AnalyticsPage() {
                     <div key={category}>
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-gray-300 capitalize font-medium">{category}</span>
-                        <span className="text-amber-600 font-semibold">R$ {amount.toFixed(2)}</span>
+                        <span className="text-amber-600 font-semibold">{formatCurrency(amount, currency)}</span>
                       </div>
                       <div className="w-full bg-gray-800 rounded-full h-2">
                         <div
@@ -249,4 +263,11 @@ export default function AnalyticsPage() {
       </main>
     </div>
   )
+}
+
+function formatCurrency(value: number, currency: string) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: currency || 'BRL'
+  }).format(Number(value) || 0)
 }

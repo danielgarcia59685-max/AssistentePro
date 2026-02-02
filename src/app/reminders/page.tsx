@@ -35,6 +35,7 @@ export default function RemindersPage() {
     title: '',
     description: '',
     due_date: new Date().toISOString().split('T')[0],
+    due_time: '',
     reminder_type: 'task',
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -128,6 +129,7 @@ export default function RemindersPage() {
           title: formData.title,
           description: formData.description,
           due_date: formData.due_date,
+          due_time: formData.due_time || null,
           reminder_type: formData.reminder_type,
         }).eq('id', editingId)
         if (error) {
@@ -150,6 +152,7 @@ export default function RemindersPage() {
           .throwOnError()
         const { error } = await supabase.from('reminders').insert([{
           ...formData,
+          due_time: formData.due_time || null,
           user_id: authUserId,
           status: 'pending',
         }])
@@ -177,7 +180,7 @@ export default function RemindersPage() {
   }
 
   const resetForm = () => {
-    setFormData({ title: '', description: '', due_date: new Date().toISOString().split('T')[0], reminder_type: 'task' })
+    setFormData({ title: '', description: '', due_date: new Date().toISOString().split('T')[0], due_time: '', reminder_type: 'task' })
     setEditingId(null)
     setShowForm(false)
   }
@@ -209,6 +212,7 @@ export default function RemindersPage() {
       title: reminder.title,
       description: reminder.description,
       due_date: reminder.due_date.split('T')[0],
+      due_time: (reminder as Reminder & { due_time?: string | null }).due_time || '',
       reminder_type: reminder.reminder_type,
     })
     setEditingId(reminder.id)
@@ -339,6 +343,10 @@ export default function RemindersPage() {
                   <Label className="text-gray-300">Data</Label>
                   <Input type="date" value={formData.due_date} onChange={(e) => setFormData({ ...formData, due_date: e.target.value })} required className="bg-gray-800 border-gray-700 text-white rounded-xl" />
                 </div>
+                <div className="space-y-2">
+                  <Label className="text-gray-300">Hora</Label>
+                  <Input type="time" value={formData.due_time} onChange={(e) => setFormData({ ...formData, due_time: e.target.value })} className="bg-gray-800 border-gray-700 text-white rounded-xl" />
+                </div>
               </div>
               <div className="space-y-2">
                 <Label className="text-gray-300">Descrição</Label>
@@ -366,7 +374,7 @@ export default function RemindersPage() {
                     <div className="flex-1">
                       <h3 className="text-lg font-semibold text-white">{reminder.title}</h3>
                       <p className="text-gray-400 text-sm mt-1">{reminder.description}</p>
-                      <p className="text-gray-500 text-sm mt-2">Vencimento: {new Date(reminder.due_date).toLocaleDateString('pt-BR')}</p>
+                      <p className="text-gray-500 text-sm mt-2">Vencimento: {new Date(reminder.due_date).toLocaleDateString('pt-BR')}{(reminder as Reminder & { due_time?: string | null }).due_time ? ` às ${(reminder as Reminder & { due_time?: string | null }).due_time}` : ''}</p>
                     </div>
                     <div className="flex gap-2">
                       <Button size="sm" onClick={() => handleEdit(reminder)} className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/30 rounded-lg">

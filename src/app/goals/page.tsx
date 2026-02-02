@@ -18,8 +18,7 @@ interface Goal {
   target_amount: number
   current_amount: number
   category: string
-  status: 'not_started' | 'in_progress' | 'completed'
-  target_date: string
+  deadline: string
 }
 
 export default function GoalsPage() {
@@ -28,13 +27,13 @@ export default function GoalsPage() {
   const [goals, setGoals] = useState<Goal[]>([])
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [currency, setCurrency] = useState('BRL')
   const [formData, setFormData] = useState({
     name: '',
     target_amount: '',
     current_amount: '',
     category: 'savings',
-    status: 'not_started',
-    target_date: new Date(new Date().getFullYear() + 1, 0, 1).toISOString().split('T')[0],
+    deadline: new Date(new Date().getFullYear() + 1, 0, 1).toISOString().split('T')[0],
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -44,9 +43,20 @@ export default function GoalsPage() {
       return
     }
     if (userId) {
+      fetchProfileCurrency()
       fetchGoals()
     }
   }, [userId, authLoading, router])
+
+  const fetchProfileCurrency = async () => {
+    if (!supabase || !userId) return
+    const { data } = await supabase
+      .from('users')
+      .select('currency')
+      .eq('id', userId)
+      .single()
+    if (data?.currency) setCurrency(data.currency)
+  }
 
   const fetchGoals = async () => {
     if (!supabase) return
@@ -55,7 +65,8 @@ export default function GoalsPage() {
       const { data, error } = await supabase
         .from('financial_goals')
         .select('*')
-        .order('target_date', { ascending: true })
+        .eq('user_id', userId)
+        .order('deadline', { ascending: true })
 
       if (!error && data) {
         setGoals(data)
@@ -68,6 +79,10 @@ export default function GoalsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!supabase) return
+    if (!userId) {
+      toast({ title: 'Sessão expirada', description: 'Faça login novamente para salvar a meta', variant: 'destructive' })
+      return
+    }
 
     // Validação
     if (!formData.name || formData.name.trim().length === 0) {
@@ -87,21 +102,22 @@ export default function GoalsPage() {
           target_amount: parseFloat(formData.target_amount),
           current_amount: parseFloat(formData.current_amount) || 0,
           category: formData.category,
-          target_date: formData.target_date,
-        }).eq('id', editingId)
+          deadline: formData.deadline,
+        }).eq('id', editingId).throwOnError()
       } else {
         await supabase.from('financial_goals').insert([{
+          user_id: userId,
           name: formData.name,
           target_amount: parseFloat(formData.target_amount),
           current_amount: parseFloat(formData.current_amount) || 0,
           category: formData.category,
-          status: 'not_started',
-          target_date: formData.target_date,
-        }])
+          deadline: formData.deadline,
+        }]).throwOnError()
       }
 
       resetForm()
       fetchGoals()
+      toast({ title: 'Sucesso', description: 'Meta salva com sucesso' })
     } catch (error) {
       console.error('Erro ao salvar meta:', error)
       toast({ title: 'Erro', description: 'Não foi possível salvar a meta', variant: 'destructive' })
@@ -111,7 +127,7 @@ export default function GoalsPage() {
   }
 
   const resetForm = () => {
-    setFormData({ name: '', target_amount: '', current_amount: '', category: 'savings', status: 'not_started', target_date: new Date(new Date().getFullYear() + 1, 0, 1).toISOString().split('T')[0] })
+    setFormData({ name: '', target_amount: '', current_amount: '', category: 'savings', deadline: new Date(new Date().getFullYear() + 1, 0, 1).toISOString().split('T')[0] })
     setEditingId(null)
     setShowForm(false)
   }
@@ -122,8 +138,7 @@ export default function GoalsPage() {
       target_amount: goal.target_amount.toString(),
       current_amount: goal.current_amount.toString(),
       category: goal.category,
-      status: goal.status,
-      target_date: goal.target_date.split('T')[0],
+      deadline: goal.deadline.split('T')[0],
     })
     setEditingId(goal.id)
     setShowForm(true)
@@ -141,8 +156,8 @@ export default function GoalsPage() {
   }
 
   const totalGoals = goals.length
-  const completedGoals = goals.filter(g => g.status === 'completed').length
-  const inProgressGoals = goals.filter(g => g.status === 'in_progress').length
+  const completedGoals = goals.filter(g => g.current_amount >= g.target_amount).length
+  const inProgressGoals = goals.filter(g => g.current_amount > 0 && g.current_amount < g.target_amount).length
   const totalTargetAmount = goals.reduce((sum, g) => sum + g.target_amount, 0)
   const totalCurrentAmount = goals.reduce((sum, g) => sum + g.current_amount, 0)
 
@@ -150,15 +165,14 @@ export default function GoalsPage() {
     return goal.target_amount > 0 ? (goal.current_amount / goal.target_amount) * 100 : 0
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return 'bg-green-500/10 border-green-500/20 text-green-400'
-      case 'in_progress':
-        return 'bg-amber-600/10 border-amber-600/20 text-amber-400'
-      default:
-        return 'bg-gray-800/50 border-gray-700 text-gray-400'
+  const getStatusColor = (goal: Goal) => {
+    if (goal.current_amount >= goal.target_amount) {
+      return 'bg-green-500/10 border-green-500/20 text-green-400'
     }
+    if (goal.current_amount > 0) {
+      return 'bg-amber-600/10 border-amber-600/20 text-amber-400'
+    }
+    return 'bg-gray-800/50 border-gray-700 text-gray-400'
   }
 
   return (
@@ -185,11 +199,11 @@ export default function GoalsPage() {
           </div>
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
             <p className="text-gray-400 text-sm mb-2">Valor Total</p>
-            <p className="text-3xl font-bold text-amber-600">R$ {totalTargetAmount.toFixed(2)}</p>
+            <p className="text-3xl font-bold text-amber-600">{formatCurrency(totalTargetAmount, currency)}</p>
           </div>
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
             <p className="text-gray-400 text-sm mb-2">Acumulado</p>
-            <p className="text-3xl font-bold text-green-500">R$ {totalCurrentAmount.toFixed(2)}</p>
+            <p className="text-3xl font-bold text-green-500">{formatCurrency(totalCurrentAmount, currency)}</p>
           </div>
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
             <p className="text-gray-400 text-sm mb-2">Concluídas</p>
@@ -232,8 +246,8 @@ export default function GoalsPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label className="text-gray-300">Data Alvo</Label>
-                <Input type="date" value={formData.target_date} onChange={(e) => setFormData({ ...formData, target_date: e.target.value })} required className="bg-gray-800 border-gray-700 text-white rounded-xl" />
+                  <Label className="text-gray-300">Data Alvo</Label>
+                  <Input type="date" value={formData.deadline} onChange={(e) => setFormData({ ...formData, deadline: e.target.value })} required className="bg-gray-800 border-gray-700 text-white rounded-xl" />
               </div>
               <div className="flex gap-3">
                 <Button type="submit" disabled={isSubmitting} className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl">{isSubmitting ? (editingId ? 'Atualizando...' : 'Adicionando...') : (editingId ? 'Atualizar' : 'Adicionar')}</Button>
@@ -254,7 +268,7 @@ export default function GoalsPage() {
             goals.map(goal => {
               const percentage = getProgressPercentage(goal)
               return (
-                <div key={goal.id} className={`rounded-2xl border p-6 flex items-center justify-between hover:border-amber-600/30 transition ${getStatusColor(goal.status)}`}>
+                <div key={goal.id} className={`rounded-2xl border p-6 flex items-center justify-between hover:border-amber-600/30 transition ${getStatusColor(goal)}`}>
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold text-white">{goal.name}</h3>
                     <p className="text-gray-400 text-sm mt-1">Categoria: {goal.category}</p>
@@ -270,7 +284,7 @@ export default function GoalsPage() {
                         ></div>
                       </div>
                     </div>
-                    <p className="text-gray-400 text-sm mt-3">R$ {goal.current_amount.toFixed(2)} / R$ {goal.target_amount.toFixed(2)}</p>
+                    <p className="text-gray-400 text-sm mt-3">{formatCurrency(goal.current_amount, currency)} / {formatCurrency(goal.target_amount, currency)}</p>
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" onClick={() => handleEdit(goal)} className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/30 rounded-lg">
@@ -288,4 +302,11 @@ export default function GoalsPage() {
       </main>
     </div>
   )
+}
+
+function formatCurrency(value: number, currency: string) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: currency || 'BRL'
+  }).format(Number(value) || 0)
 }

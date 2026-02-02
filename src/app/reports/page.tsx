@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -22,12 +23,14 @@ interface CategoryData {
 }
 
 export default function ReportsPage() {
+  const router = useRouter()
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([])
   const [categoryData, setCategoryData] = useState<CategoryData[]>([])
   const [month, setMonth] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [currency, setCurrency] = useState('BRL')
   const { userId, loading: authLoading } = useAuth()
 
   const dateRange = useMemo(() => {
@@ -50,9 +53,21 @@ export default function ReportsPage() {
 
   useEffect(() => {
     if (authLoading || !userId) return
+    fetchProfileCurrency()
     fetchMonthlyReport()
     fetchCategoryReport()
   }, [authLoading, userId, dateRange.start, dateRange.end])
+
+  const fetchProfileCurrency = async () => {
+    if (!supabase || !userId) return
+    const { data } = await supabase
+      .from('users')
+      .select('currency')
+      .eq('id', userId)
+      .single()
+
+    if (data?.currency) setCurrency(data.currency)
+  }
 
   const fetchMonthlyReport = async () => {
     if (!supabase || !userId) {
@@ -84,8 +99,8 @@ export default function ReportsPage() {
       const grouped = data.reduce((acc, transaction) => {
         const month = new Date(transaction.date).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })
         if (!acc[month]) acc[month] = { income: 0, expense: 0 }
-        if (transaction.type === 'income') acc[month].income += transaction.amount
-        else acc[month].expense += transaction.amount
+        if (transaction.type === 'income') acc[month].income += Number(transaction.amount)
+        else acc[month].expense += Number(transaction.amount)
         return acc
       }, {} as Record<string, { income: number; expense: number }>)
 
@@ -107,7 +122,7 @@ export default function ReportsPage() {
     
     let query = supabase
       .from('transactions')
-      .select('amount, category')
+      .select('amount, categories(name)')
       .eq('type', 'expense')
       .eq('user_id', userId)
 
@@ -124,8 +139,8 @@ export default function ReportsPage() {
     if (error) console.error(error)
     else {
       const grouped = data.reduce((acc, transaction) => {
-        const category = transaction.category || 'Outros'
-        acc[category] = (acc[category] || 0) + transaction.amount
+        const category = transaction.categories?.name || 'Outros'
+        acc[category] = (acc[category] || 0) + Number(transaction.amount)
         return acc
       }, {} as Record<string, number>)
 
@@ -135,6 +150,18 @@ export default function ReportsPage() {
   }
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8']
+
+  const handleCategoryClick = (name: string) => {
+    const params = new URLSearchParams()
+    params.set('category', name)
+    if (month) {
+      params.set('month', month)
+    } else {
+      if (dateRange.start) params.set('start', dateRange.start)
+      if (dateRange.end) params.set('end', dateRange.end)
+    }
+    router.push(`/transactions?${params.toString()}`)
+  }
 
   return (
     <div className="min-h-screen bg-black">
@@ -213,7 +240,7 @@ export default function ReportsPage() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="month" />
                 <YAxis />
-                <Tooltip />
+                <Tooltip formatter={(value: number) => formatCurrency(value, currency)} />
                 <Bar dataKey="income" fill="#00C49F" name="Receitas" />
                 <Bar dataKey="expense" fill="#FF8042" name="Despesas" />
               </BarChart>
@@ -242,13 +269,34 @@ export default function ReportsPage() {
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip formatter={(value: number) => formatCurrency(value, currency)} />
               </PieChart>
             </ResponsiveContainer>
+            {categoryData.length > 0 && (
+              <div className="mt-6 space-y-3">
+                {categoryData.map((item) => (
+                  <button
+                    key={item.name}
+                    onClick={() => handleCategoryClick(item.name)}
+                    className="w-full flex items-center justify-between rounded-xl border border-gray-800 bg-gray-900/50 px-4 py-3 text-left text-sm text-gray-300 hover:border-amber-600/40 hover:text-amber-400 transition"
+                  >
+                    <span className="font-medium">{item.name}</span>
+                    <span>{formatCurrency(item.value, currency)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
       </main>
     </div>
   )
+}
+
+function formatCurrency(value: number, currency: string) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: currency || 'BRL'
+  }).format(Number(value) || 0)
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 export function useAuth() {
@@ -7,6 +7,7 @@ export function useAuth() {
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
+  const pathname = usePathname()
 
   useEffect(() => {
     let mounted = true
@@ -32,16 +33,46 @@ export function useAuth() {
         if (session && mounted) {
           setUserId(session.user.id)
           setUserEmail(session.user.email || null)
+
+          if (supabase) {
+            const { data: profile } = await supabase
+              .from('users')
+              .select('name')
+              .eq('id', session.user.id)
+              .single()
+
+            const needsOnboarding = !profile?.name || profile.name.trim().length === 0
+            const isAllowedRoute = pathname === '/onboarding' || pathname === '/login' || pathname === '/register'
+
+            if (needsOnboarding && !isAllowedRoute) {
+              router.push('/onboarding')
+              setLoading(false)
+              return
+            }
+          }
         } else if (mounted) {
           // redirect to login if no session
           router.push('/login')
         }
 
         // Subscribe to auth state changes
-        const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+        const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
           if (session?.user) {
             setUserId(session.user.id)
             setUserEmail(session.user.email || null)
+
+            const { data: profile } = await supabase
+              .from('users')
+              .select('name')
+              .eq('id', session.user.id)
+              .single()
+
+            const needsOnboarding = !profile?.name || profile.name.trim().length === 0
+            const isAllowedRoute = pathname === '/onboarding' || pathname === '/login' || pathname === '/register'
+
+            if (needsOnboarding && !isAllowedRoute) {
+              router.push('/onboarding')
+            }
           } else {
             setUserId(null)
             setUserEmail(null)

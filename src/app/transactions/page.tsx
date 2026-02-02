@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,7 +16,8 @@ interface Transaction {
   id: string
   amount: number
   type: 'income' | 'expense'
-  category: string
+  category_id?: string | null
+  categories?: { name: string } | null
   description: string
   date: string
   payment_method: string
@@ -23,25 +25,78 @@ interface Transaction {
 
 export default function TransactionsPage() {
   const { userId, loading: authLoading } = useAuth()
+  const searchParams = useSearchParams()
+  const initializedFromQuery = useRef(false)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [categoryFilter, setCategoryFilter] = useState('')
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense'>('all')
+  const [month, setMonth] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [currency, setCurrency] = useState('BRL')
   const [formData, setFormData] = useState({
     amount: '',
     type: 'expense' as 'income' | 'expense',
     category: '',
     description: '',
     date: new Date().toISOString().split('T')[0],
-    payment_method: 'dinheiro',
+    payment_method: 'cash',
   })
+
+  const dateRange = useMemo(() => {
+    if (month) {
+      const [yearStr, monthStr] = month.split('-')
+      const year = Number(yearStr)
+      const monthNumber = Number(monthStr)
+      if (!year || !monthNumber) return { start: null, end: null }
+      const lastDay = new Date(year, monthNumber, 0).getDate()
+      const start = `${yearStr}-${monthStr}-01`
+      const end = `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`
+      return { start, end }
+    }
+
+    return {
+      start: startDate || null,
+      end: endDate || null,
+    }
+  }, [month, startDate, endDate])
+
+  useEffect(() => {
+    if (initializedFromQuery.current) return
+    const category = searchParams.get('category')
+    const start = searchParams.get('start')
+    const end = searchParams.get('end')
+    const monthParam = searchParams.get('month')
+
+    if (category) setCategoryFilter(category)
+    if (monthParam) {
+      setMonth(monthParam)
+    } else {
+      if (start) setStartDate(start)
+      if (end) setEndDate(end)
+    }
+
+    initializedFromQuery.current = true
+  }, [searchParams])
 
   useEffect(() => {
     if (authLoading || !userId) return
+    fetchProfileCurrency()
     fetchTransactions()
-  }, [authLoading, userId, categoryFilter, search, typeFilter])
+  }, [authLoading, userId, categoryFilter, search, typeFilter, dateRange.start, dateRange.end])
+
+  const fetchProfileCurrency = async () => {
+    if (!supabase || !userId) return
+    const { data } = await supabase
+      .from('users')
+      .select('currency')
+      .eq('id', userId)
+      .single()
+    if (data?.currency) setCurrency(data.currency)
+  }
 
   const fetchTransactions = async () => {
     if (!supabase || !userId) {
@@ -52,7 +107,7 @@ export default function TransactionsPage() {
     try {
       let query = supabase
         .from('transactions')
-        .select('*')
+        .select('id, amount, type, description, date, payment_method, category_id, categories(name)')
         .eq('user_id', userId)
         .order('date', { ascending: false })
 
@@ -61,12 +116,20 @@ export default function TransactionsPage() {
       }
 
       if (categoryFilter.trim()) {
-        query = query.ilike('category', `%${categoryFilter.trim()}%`)
+        query = query.ilike('categories.name', `%${categoryFilter.trim()}%`)
       }
 
       if (search.trim()) {
         const term = search.trim()
-        query = query.or(`description.ilike.%${term}%,category.ilike.%${term}%`)
+        query = query.or(`description.ilike.%${term}%,categories.name.ilike.%${term}%`)
+      }
+
+      if (dateRange.start) {
+        query = query.gte('date', dateRange.start)
+      }
+
+      if (dateRange.end) {
+        query = query.lte('date', dateRange.end)
       }
 
       const { data, error } = await query
@@ -88,21 +151,23 @@ export default function TransactionsPage() {
     try {
       if (editingId) {
         // Atualizar transação existente
+        const categoryId = await getOrCreateCategory(formData.category, formData.type)
         await supabase.from('transactions').update({
           amount: parseFloat(formData.amount),
           type: formData.type,
-          category: formData.category,
+          category_id: categoryId,
           description: formData.description,
           date: formData.date,
           payment_method: formData.payment_method,
         }).eq('id', editingId)
       } else {
+        const categoryId = await getOrCreateCategory(formData.category, formData.type)
         // Inserir nova transação
         await supabase.from('transactions').insert([{
           user_id: userId,
           amount: parseFloat(formData.amount),
           type: formData.type,
-          category: formData.category,
+          category_id: categoryId,
           description: formData.description,
           date: formData.date,
           payment_method: formData.payment_method,
@@ -123,7 +188,7 @@ export default function TransactionsPage() {
       category: '',
       description: '',
       date: new Date().toISOString().split('T')[0],
-      payment_method: 'dinheiro',
+      payment_method: 'cash',
     })
     setEditingId(null)
     setShowForm(false)
@@ -144,13 +209,34 @@ export default function TransactionsPage() {
     setFormData({
       amount: transaction.amount.toString(),
       type: transaction.type,
-      category: transaction.category,
+      category: transaction.categories?.name || '',
       description: transaction.description,
       date: transaction.date.split('T')[0],
       payment_method: transaction.payment_method,
     })
     setEditingId(transaction.id)
     setShowForm(true)
+  }
+
+  const getOrCreateCategory = async (name: string, type: 'income' | 'expense') => {
+    if (!name.trim()) return null
+    const { data: existing } = await supabase
+      .from('categories')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('name', name.trim())
+      .eq('type', type)
+      .single()
+
+    if (existing?.id) return existing.id
+
+    const { data: created } = await supabase
+      .from('categories')
+      .insert([{ user_id: userId, name: name.trim(), type }])
+      .select('id')
+      .single()
+
+    return created?.id || null
   }
 
   return (
@@ -174,7 +260,7 @@ export default function TransactionsPage() {
 
         {/* Filters */}
         <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="space-y-2">
               <Label className="text-gray-300 font-semibold">Categoria</Label>
               <Input
@@ -194,6 +280,21 @@ export default function TransactionsPage() {
               />
             </div>
             <div className="space-y-2">
+              <Label className="text-gray-300 font-semibold">Mês</Label>
+              <Input
+                type="month"
+                value={month}
+                onChange={(e) => {
+                  setMonth(e.target.value)
+                  if (e.target.value) {
+                    setStartDate('')
+                    setEndDate('')
+                  }
+                }}
+                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
+              />
+            </div>
+            <div className="space-y-2">
               <Label className="text-gray-300 font-semibold">Tipo</Label>
               <Select value={typeFilter} onValueChange={(value: 'all' | 'income' | 'expense') => setTypeFilter(value)}>
                 <SelectTrigger className="bg-gray-800 border-gray-700 rounded-xl text-white">
@@ -207,6 +308,32 @@ export default function TransactionsPage() {
               </Select>
             </div>
           </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <div className="space-y-2">
+              <Label className="text-gray-300 font-semibold">Data inicial</Label>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value)
+                  if (e.target.value) setMonth('')
+                }}
+                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-gray-300 font-semibold">Data final</Label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => {
+                  setEndDate(e.target.value)
+                  if (e.target.value) setMonth('')
+                }}
+                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
+              />
+            </div>
+          </div>
           <div className="flex gap-3 mt-4">
             <Button
               type="button"
@@ -215,6 +342,9 @@ export default function TransactionsPage() {
                 setCategoryFilter('')
                 setSearch('')
                 setTypeFilter('all')
+                setMonth('')
+                setStartDate('')
+                setEndDate('')
               }}
             >
               Limpar filtros
@@ -269,10 +399,9 @@ export default function TransactionsPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-800 border-gray-700">
-                      <SelectItem value="dinheiro">Dinheiro</SelectItem>
-                      <SelectItem value="credito">Cartão Crédito</SelectItem>
-                      <SelectItem value="debito">Cartão Débito</SelectItem>
-                      <SelectItem value="transferencia">Transferência</SelectItem>
+                      <SelectItem value="cash">Dinheiro</SelectItem>
+                      <SelectItem value="card">Cartão</SelectItem>
+                      <SelectItem value="transfer">Transferência</SelectItem>
                       <SelectItem value="pix">PIX</SelectItem>
                     </SelectContent>
                   </Select>
@@ -341,12 +470,12 @@ export default function TransactionsPage() {
                         {new Date(transaction.date).toLocaleDateString('pt-BR')}
                       </TableCell>
                       <TableCell className="text-gray-300">{transaction.description}</TableCell>
-                      <TableCell className="text-gray-300 capitalize">{transaction.category}</TableCell>
-                      <TableCell className="text-gray-300 capitalize">{transaction.payment_method}</TableCell>
+                      <TableCell className="text-gray-300 capitalize">{transaction.categories?.name || '-'}</TableCell>
+                      <TableCell className="text-gray-300 capitalize">{formatPaymentMethod(transaction.payment_method)}</TableCell>
                       <TableCell className={`font-bold text-right ${
                         transaction.type === 'income' ? 'text-green-500' : 'text-red-500'
                       }`}>
-                        {transaction.type === 'income' ? '+' : '-'} R$ {transaction.amount.toFixed(2)}
+                        {transaction.type === 'income' ? '+' : '-'} {formatCurrency(transaction.amount, currency)}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex gap-2 justify-end">
@@ -378,4 +507,21 @@ export default function TransactionsPage() {
       </main>
     </div>
   )
+}
+
+function formatCurrency(value: number, currency: string) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: currency || 'BRL'
+  }).format(Number(value) || 0)
+}
+
+function formatPaymentMethod(method: string) {
+  switch (method) {
+    case 'pix': return 'PIX'
+    case 'card': return 'Cartão'
+    case 'transfer': return 'Transferência'
+    case 'cash': return 'Dinheiro'
+    default: return method
+  }
 }

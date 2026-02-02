@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useAuth } from '@/hooks/use-auth'
 import { Button } from '@/components/ui/button'
-import { Menu, X, BarChart3, FileText, DollarSign, Calendar, Target, LogOut } from 'lucide-react'
+import { Menu, X, BarChart3, FileText, DollarSign, Calendar, Target, LogOut, Settings } from 'lucide-react'
 
 export function Navigation() {
   const { logout } = useAuth()
@@ -13,10 +13,11 @@ export function Navigation() {
   const links = [
     { href: '/dashboard', label: 'Página inicial', icon: DollarSign },
     { href: '/transactions', label: 'Transações', icon: DollarSign },
-    { href: '/analytics', label: 'Relatórios', icon: BarChart3 },
+    { href: '/reports', label: 'Relatórios', icon: BarChart3 },
     { href: '/bills', label: 'Contas', icon: FileText },
     { href: '/reminders', label: 'Compromissos', icon: Calendar },
     { href: '/goals', label: 'Metas', icon: Target },
+    { href: '/onboarding', label: 'Perfil', icon: Settings },
   ]
 
   return (
@@ -25,12 +26,12 @@ export function Navigation() {
         <div className="flex justify-between items-center h-20">
           {/* Logo */}
           <Link href="/dashboard" className="flex items-center gap-2 group">
-            <div className="w-10 h-10 bg-amber-600 rounded-lg flex items-center justify-center shadow-lg group-hover:shadow-amber-600/50 group-hover:shadow-2xl transition-all">
-              <span className="text-white font-bold text-lg">A</span>
+            <div className="w-10 h-10 rounded-lg overflow-hidden shadow-lg group-hover:shadow-amber-600/50 group-hover:shadow-2xl transition-all">
+              <img src="/logo-assistentepro.svg" alt="AssistentePro" className="w-full h-full object-cover" />
             </div>
             <div className="hidden sm:block">
               <p className="font-bold text-lg text-white">Assistente<span className="text-amber-600">Pro</span></p>
-              <p className="text-xs text-gray-500">Financial Manager</p>
+              <p className="text-xs text-gray-500">assistente pessoal</p>
             </div>
           </Link>
 

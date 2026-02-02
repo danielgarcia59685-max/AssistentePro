@@ -15,7 +15,8 @@ interface Transaction {
   id: string
   amount: number
   type: 'income' | 'expense'
-  category: string
+  category_id?: string | null
+  categories?: { name: string } | null
   description: string
   date: string
 }
@@ -33,6 +34,7 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [currency, setCurrency] = useState('BRL')
   
   // Form state
   const [formData, setFormData] = useState({
@@ -46,6 +48,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!authLoading && userId) {
       if (supabase) {
+        fetchProfileCurrency()
         fetchTransactions()
         fetchSummary()
       } else {
@@ -53,6 +56,19 @@ export default function Dashboard() {
       }
     }
   }, [authLoading, userId])
+
+  const fetchProfileCurrency = async () => {
+    if (!supabase || !userId) return
+    const { data } = await supabase
+      .from('users')
+      .select('currency')
+      .eq('id', userId)
+      .single()
+
+    if (data?.currency) {
+      setCurrency(data.currency)
+    }
+  }
 
   const fetchTransactions = async () => {
     if (!supabase || !userId) {
@@ -63,7 +79,7 @@ export default function Dashboard() {
     try {
       const { data, error } = await supabase
         .from('transactions')
-        .select('*')
+        .select('id, amount, type, description, date, category_id, categories(name)')
         .eq('user_id', userId)
         .order('date', { ascending: false })
         .limit(10)
@@ -88,15 +104,15 @@ export default function Dashboard() {
     try {
       const { data, error } = await supabase
         .from('transactions')
-        .select('amount, type, category')
+        .select('amount, type')
         .eq('user_id', userId)
         .gte('date', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
 
       if (error) {
         console.error('Erro ao buscar resumo:', error)
       } else if (data) {
-        const income = data.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
-        const expense = data.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
+        const income = data.filter(t => t.type === 'income').reduce((sum, t) => sum + Number(t.amount), 0)
+        const expense = data.filter(t => t.type === 'expense').reduce((sum, t) => sum + Number(t.amount), 0)
         setSummary({ totalIncome: income, totalExpense: expense, balance: income - expense })
       }
     } catch (error) {
@@ -125,13 +141,14 @@ export default function Dashboard() {
     }
 
     try {
+      const categoryId = await getOrCreateCategory(formData.category, formData.type)
       if (editingId) {
         const { error } = await supabase
           .from('transactions')
           .update({
             amount: parseFloat(formData.amount),
             type: formData.type,
-            category: formData.category,
+            category_id: categoryId,
             description: formData.description,
             date: formData.date
           })
@@ -154,7 +171,7 @@ export default function Dashboard() {
             user_id: userId,
             amount: parseFloat(formData.amount),
             type: formData.type,
-            category: formData.category,
+            category_id: categoryId,
             description: formData.description,
             date: formData.date
           }])
@@ -180,11 +197,35 @@ export default function Dashboard() {
     setFormData({
       amount: t.amount.toString(),
       type: t.type,
-      category: t.category,
+      category: t.categories?.name || '',
       description: t.description,
       date: t.date.split('T')[0]
     })
     setShowAddForm(true)
+  }
+
+  const getOrCreateCategory = async (name: string, type: 'income' | 'expense') => {
+    if (!supabase || !userId) return null
+    const trimmed = name.trim()
+    if (!trimmed) return null
+
+    const { data: existing } = await supabase
+      .from('categories')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('name', trimmed)
+      .eq('type', type)
+      .single()
+
+    if (existing?.id) return existing.id
+
+    const { data: created } = await supabase
+      .from('categories')
+      .insert([{ user_id: userId, name: trimmed, type }])
+      .select('id')
+      .single()
+
+    return created?.id || null
   }
 
   const handleDeleteTransaction = async (id: string) => {
@@ -244,7 +285,7 @@ export default function Dashboard() {
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
           <div>
             <h1 className="text-4xl font-bold text-white mb-2">Página inicial</h1>
-            <p className="text-gray-400">Bem-vindo ao AssistentePro Financial Manager</p>
+            <p className="text-gray-400">Bem-vindo ao AssistentePro, seu assistente pessoal</p>
           </div>
           <Button 
             onClick={() => setShowAddForm(!showAddForm)}
@@ -350,7 +391,7 @@ export default function Dashboard() {
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 flex justify-between items-center hover:border-gray-700 transition">
             <div>
               <p className="text-gray-400 mb-1 font-medium">Receitas</p>
-              <h3 className="text-3xl font-bold text-green-500">R$ {summary.totalIncome.toFixed(2)}</h3>
+              <h3 className="text-3xl font-bold text-green-500">{formatCurrency(summary.totalIncome, currency)}</h3>
               <p className="text-sm text-gray-500 mt-2">Mês atual</p>
             </div>
             <div className="w-12 h-12 bg-green-500/10 rounded-full flex items-center justify-center">
@@ -362,7 +403,7 @@ export default function Dashboard() {
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 flex justify-between items-center hover:border-gray-700 transition">
             <div>
               <p className="text-gray-400 mb-1 font-medium">Despesas</p>
-              <h3 className="text-3xl font-bold text-red-500">R$ {summary.totalExpense.toFixed(2)}</h3>
+              <h3 className="text-3xl font-bold text-red-500">{formatCurrency(summary.totalExpense, currency)}</h3>
               <p className="text-sm text-gray-500 mt-2">Mês atual</p>
             </div>
             <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center">
@@ -375,7 +416,7 @@ export default function Dashboard() {
             <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-amber-600/10 blur-2xl rounded-full"></div>
             <div>
               <p className="text-amber-600 mb-1 font-medium">Saldo</p>
-              <h3 className="text-3xl font-bold text-amber-600">R$ {summary.balance.toFixed(2)}</h3>
+              <h3 className="text-3xl font-bold text-amber-600">{formatCurrency(summary.balance, currency)}</h3>
               <p className="text-sm text-gray-500 mt-2">Receitas - Despesas</p>
             </div>
             <div className="w-12 h-12 bg-amber-600/20 rounded-full flex items-center justify-center z-10">
@@ -425,7 +466,7 @@ export default function Dashboard() {
                         }`}>
                           {transaction.type === 'income' ? 'Receita' : 'Despesa'}
                         </span>
-                        <h4 className="text-white font-semibold capitalize">{transaction.category}</h4>
+                        <h4 className="text-white font-semibold capitalize">{transaction.categories?.name || '-'}</h4>
                       </div>
                       <p className="text-gray-400 text-sm mt-1">{transaction.description}</p>
                       <p className="text-gray-500 text-xs mt-1">
@@ -438,7 +479,7 @@ export default function Dashboard() {
                     <span className={`text-lg font-bold ${
                       transaction.type === 'income' ? 'text-green-500' : 'text-red-500'
                     }`}>
-                      {transaction.type === 'income' ? '+' : '-'} R$ {transaction.amount.toFixed(2)}
+                      {transaction.type === 'income' ? '+' : '-'} {formatCurrency(transaction.amount, currency)}
                     </span>
                     <div className="flex gap-2">
                       <Button 
@@ -467,4 +508,11 @@ export default function Dashboard() {
       </main>
     </div>
   )
+}
+
+function formatCurrency(value: number, currency: string) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: currency || 'BRL'
+  }).format(Number(value) || 0)
 }
