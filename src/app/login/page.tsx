@@ -66,7 +66,8 @@ export default function LoginPage() {
       localStorage.setItem('user_id', userId)
       localStorage.setItem('user_email', normalizedEmail)
 
-      router.push('/dashboard')
+      const onboardingComplete = localStorage.getItem('onboarding_complete')
+      router.push(onboardingComplete ? '/dashboard' : '/onboarding')
     } catch (err: any) {
       setError(err.message || 'Erro ao fazer login')
     } finally {
@@ -115,14 +116,14 @@ export default function LoginPage() {
         <div className="bg-gray-900 rounded-3xl border border-gray-800 p-8 shadow-2xl">
           {/* Logo */}
           <div className="flex justify-center mb-8">
-            <div className="w-16 h-16 bg-amber-600 rounded-2xl flex items-center justify-center shadow-lg shadow-amber-600/20">
-              <span className="text-white font-bold text-2xl">A</span>
+            <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-lg shadow-amber-600/20">
+              <img src="/logo-assistentepro.svg" alt="AssistentePro" className="w-full h-full object-cover" />
             </div>
           </div>
 
           {/* Title */}
           <h1 className="text-3xl font-bold text-white text-center mb-2">AssistentePro</h1>
-          <p className="text-gray-400 text-center mb-8">Financial Manager</p>
+          <p className="text-gray-400 text-center mb-8">assistente pessoal</p>
 
           {/* Form */}
           <form onSubmit={handleLogin} className="space-y-6">

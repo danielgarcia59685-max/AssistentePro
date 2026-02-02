@@ -2,17 +2,28 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { supabase } from '@/lib/supabase'
 
 export default function Home() {
   const router = useRouter()
 
   useEffect(() => {
-    const userId = localStorage.getItem('user_id')
-    if (userId) {
-      router.push('/dashboard')
-    } else {
-      router.push('/login')
+    const redirect = async () => {
+      if (!supabase) {
+        const userId = localStorage.getItem('user_id')
+        router.push(userId ? '/dashboard' : '/login')
+        return
+      }
+
+      const { data } = await supabase.auth.getSession()
+      if (data.session?.user) {
+        router.push('/dashboard')
+      } else {
+        router.push('/login')
+      }
     }
+
+    redirect()
   }, [router])
 
   return (

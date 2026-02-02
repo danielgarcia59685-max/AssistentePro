@@ -85,8 +85,8 @@ export default function RegisterPage() {
         <div className="bg-gray-900 rounded-3xl border border-gray-800 p-8 shadow-2xl">
           {/* Logo */}
           <div className="flex justify-center mb-8">
-            <div className="w-16 h-16 bg-amber-600 rounded-2xl flex items-center justify-center shadow-lg shadow-amber-600/20">
-              <span className="text-white font-bold text-2xl">A</span>
+            <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-lg shadow-amber-600/20">
+              <img src="/logo-assistentepro.svg" alt="AssistentePro" className="w-full h-full object-cover" />
             </div>
           </div>
 
