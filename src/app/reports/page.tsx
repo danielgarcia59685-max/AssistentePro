@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/use-auth'
 import { Navigation } from '@/components/Navigation'
@@ -14,6 +14,7 @@ interface MonthlyData {
   month: string
   income: number
   expense: number
+  sortKey?: string
 }
 
 interface CategoryData {
@@ -36,6 +37,15 @@ export default function ReportsPage() {
     const income = monthlyData.reduce((sum, row) => sum + Number(row.income || 0), 0)
     const expense = monthlyData.reduce((sum, row) => sum + Number(row.expense || 0), 0)
     return { income, expense, balance: income - expense }
+  }, [monthlyData])
+  const balanceEvolution = useMemo(() => {
+    let running = 0
+    return [...monthlyData]
+      .sort((a, b) => (a.sortKey || '').localeCompare(b.sortKey || ''))
+      .map((row) => {
+        running += Number(row.income || 0) - Number(row.expense || 0)
+        return { month: row.month, balance: running }
+      })
   }, [monthlyData])
   const { userId, loading: authLoading } = useAuth()
 
@@ -129,18 +139,23 @@ export default function ReportsPage() {
       console.error(error)
     } else {
       const grouped = data.reduce((acc, transaction) => {
-        const month = new Date(transaction.date).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })
-        if (!acc[month]) acc[month] = { income: 0, expense: 0 }
-        if (transaction.type === 'income') acc[month].income += Number(transaction.amount)
-        else acc[month].expense += Number(transaction.amount)
+        const monthKey = String(transaction.date || '').slice(0, 7)
+        if (!monthKey) return acc
+        const monthLabel = new Date(`${monthKey}-01`).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })
+        if (!acc[monthKey]) acc[monthKey] = { income: 0, expense: 0, month: monthLabel }
+        if (transaction.type === 'income') acc[monthKey].income += Number(transaction.amount)
+        else acc[monthKey].expense += Number(transaction.amount)
         return acc
-      }, {} as Record<string, { income: number; expense: number }>)
+      }, {} as Record<string, { income: number; expense: number; month: string }>)
 
-      const chartData = Object.entries(grouped).map(([month, values]) => ({
-        month,
-        income: values.income,
-        expense: values.expense
-      }))
+      const chartData = Object.entries(grouped)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([monthKey, values]) => ({
+          month: values.month,
+          income: values.income,
+          expense: values.expense,
+          sortKey: monthKey,
+        }))
       setMonthlyData(chartData)
     }
     setIsLoading(false)
@@ -362,6 +377,35 @@ export default function ReportsPage() {
               </div>
             )}
           </div>
+        </div>
+
+        <div className="mt-6 bg-gray-900 rounded-2xl border border-gray-800 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-xl font-semibold text-white">Evolução do Saldo</h2>
+              <p className="text-sm text-gray-400">Saldo acumulado no período</p>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart data={balanceEvolution}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+              <XAxis dataKey="month" stroke="#94a3b8" tickLine={false} axisLine={{ stroke: '#1f2937' }} />
+              <YAxis stroke="#94a3b8" tickLine={false} axisLine={{ stroke: '#1f2937' }} />
+              <Tooltip
+                formatter={(value: number) => formatCurrency(value, currency)}
+                contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1f2937', borderRadius: 12 }}
+                labelStyle={{ color: '#e2e8f0' }}
+                itemStyle={{ color: '#cbd5f5' }}
+              />
+              <Line
+                type="monotone"
+                dataKey="balance"
+                stroke="#22c55e"
+                strokeWidth={3}
+                dot={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       </main>
     </div>
