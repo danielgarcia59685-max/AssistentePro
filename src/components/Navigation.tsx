@@ -27,7 +27,7 @@ export function Navigation() {
           {/* Logo */}
           <Link href="/dashboard" className="flex items-center gap-2 group">
             <div className="w-10 h-10 rounded-lg overflow-hidden shadow-lg group-hover:shadow-amber-600/50 group-hover:shadow-2xl transition-all">
-              <img src="/logo-assistentepro.svg" alt="AssistentePro" className="w-full h-full object-cover" />
+              <img src="/assets/mark-assistentepro.svg" alt="AssistentePro" className="w-full h-full object-cover" />
             </div>
             <div className="hidden sm:block">
               <p className="font-bold text-lg text-white">Assistente<span className="text-amber-600">Pro</span></p>

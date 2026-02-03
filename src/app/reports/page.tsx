@@ -181,7 +181,7 @@ export default function ReportsPage() {
     }
   }
 
-  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8']
+  const COLORS = ['#22c55e', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6', '#14b8a6']
 
   const handleCategoryClick = (name: string) => {
     const params = new URLSearchParams()
@@ -283,49 +283,79 @@ export default function ReportsPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <h2 className="text-xl font-semibold text-white mb-4">Receitas vs Despesas por Mês</h2>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={monthlyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis dataKey="month" stroke="#9CA3AF" />
-                <YAxis stroke="#9CA3AF" />
-                <Tooltip formatter={(value: number) => formatCurrency(value, currency)} />
-                <Bar dataKey="income" fill="#10B981" name="Receitas" />
-                <Bar dataKey="expense" fill="#F97316" name="Despesas" />
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-semibold text-white">Receitas vs Despesas</h2>
+                <p className="text-sm text-gray-400">Comparativo mensal</p>
+              </div>
+              <div className="flex items-center gap-3 text-xs text-gray-400">
+                <span className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-green-600" /> Receitas
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-red-500" /> Despesas
+                </span>
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={monthlyData} barCategoryGap={16} barGap={6}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                <XAxis dataKey="month" stroke="#94a3b8" tickLine={false} axisLine={{ stroke: '#1f2937' }} />
+                <YAxis stroke="#94a3b8" tickLine={false} axisLine={{ stroke: '#1f2937' }} />
+                <Tooltip
+                  formatter={(value: number) => formatCurrency(value, currency)}
+                  contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1f2937', borderRadius: 12 }}
+                  labelStyle={{ color: '#e2e8f0' }}
+                  itemStyle={{ color: '#cbd5f5' }}
+                />
+                <Bar dataKey="income" fill="#16a34a" name="Receitas" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="expense" fill="#ef4444" name="Despesas" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
 
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <h2 className="text-xl font-semibold text-white mb-4">Gastos por Categoria</h2>
-            <ResponsiveContainer width="100%" height={300}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-semibold text-white">Despesas por Categoria</h2>
+                <p className="text-sm text-gray-400">Distribuição do período</p>
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={320}>
               <PieChart>
                 <Pie
                   data={categoryData}
                   cx="50%"
                   cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={80}
-                  fill="#8884d8"
+                  innerRadius={60}
+                  outerRadius={100}
+                  paddingAngle={2}
                   dataKey="value"
                 >
                   {categoryData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(value: number) => formatCurrency(value, currency)} />
+                <Tooltip
+                  formatter={(value: number) => formatCurrency(value, currency)}
+                  contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1f2937', borderRadius: 12 }}
+                  labelStyle={{ color: '#e2e8f0' }}
+                  itemStyle={{ color: '#cbd5f5' }}
+                />
               </PieChart>
             </ResponsiveContainer>
             {categoryData.length > 0 && (
               <div className="mt-6 space-y-3">
-                {categoryData.map((item) => (
+                {categoryData.map((item, index) => (
                   <button
                     key={item.name}
                     onClick={() => handleCategoryClick(item.name)}
                     className="w-full flex items-center justify-between rounded-xl border border-gray-800 bg-gray-900/50 px-4 py-3 text-left text-sm text-gray-300 hover:border-amber-600/40 hover:text-amber-400 transition"
                   >
-                    <span className="font-medium">{item.name}</span>
+                    <span className="flex items-center gap-3 font-medium">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
+                      {item.name}
+                    </span>
                     <span>{formatCurrency(item.value, currency)}</span>
                   </button>
                 ))}

@@ -20,6 +20,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Assistente Financeiro",
   description: "Aplicação para gerenciar suas finanças pessoais com inteligência artificial",
+  icons: {
+    icon: "/assets/mark-assistentepro.svg",
+    shortcut: "/assets/mark-assistentepro.svg",
+    apple: "/assets/mark-assistentepro.svg",
+  },
 };
 
 export default function RootLayout({
