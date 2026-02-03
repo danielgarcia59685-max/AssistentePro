@@ -212,20 +212,20 @@ function TransactionsContent() {
           payment_method: formData.payment_method,
         }).eq('id', editingId)
 
-        if (isMissingColumnError(updateResult.error, 'category')) {
-          const categoryId = await getOrCreateCategory(formData.category, formData.type)
-          await supabase.from('transactions').update({
-            amount: parseFloat(formData.amount),
-            type: formData.type,
-            category_id: categoryId,
-            description: formData.description,
-            date: formData.date,
-            payment_method: formData.payment_method,
-          }).eq('id', editingId)
-        }
-
         if (updateResult.error) {
-          throw updateResult.error
+          if (isMissingColumnError(updateResult.error, 'category')) {
+            const categoryId = await getOrCreateCategory(formData.category, formData.type)
+            await supabase.from('transactions').update({
+              amount: parseFloat(formData.amount),
+              type: formData.type,
+              category_id: categoryId,
+              description: formData.description,
+              date: formData.date,
+              payment_method: formData.payment_method,
+            }).eq('id', editingId)
+          } else {
+            throw updateResult.error
+          }
         }
       } else {
         // Inserir nova transação
@@ -239,21 +239,21 @@ function TransactionsContent() {
           payment_method: formData.payment_method,
         }])
 
-        if (isMissingColumnError(insertResult.error, 'category')) {
-          const categoryId = await getOrCreateCategory(formData.category, formData.type)
-          await supabase.from('transactions').insert([{
-            user_id: userId,
-            amount: parseFloat(formData.amount),
-            type: formData.type,
-            category_id: categoryId,
-            description: formData.description,
-            date: formData.date,
-            payment_method: formData.payment_method,
-          }])
-        }
-
         if (insertResult.error) {
-          throw insertResult.error
+          if (isMissingColumnError(insertResult.error, 'category')) {
+            const categoryId = await getOrCreateCategory(formData.category, formData.type)
+            await supabase.from('transactions').insert([{
+              user_id: userId,
+              amount: parseFloat(formData.amount),
+              type: formData.type,
+              category_id: categoryId,
+              description: formData.description,
+              date: formData.date,
+              payment_method: formData.payment_method,
+            }])
+          } else {
+            throw insertResult.error
+          }
         }
       }
       
