@@ -141,7 +141,7 @@ async function saveTransaction(data: any, userId: string) {
 
   try {
     // Criar transação diretamente (sem tabela categories separada)
-    await supabaseAdmin
+    const insertResult = await supabaseAdmin
       .from('transactions')
       .insert([{
         amount: data.amount,
@@ -152,9 +152,62 @@ async function saveTransaction(data: any, userId: string) {
         user_id: userId,
         date: new Date().toISOString().split('T')[0]
       }])
+
+    if (insertResult.error) {
+      if (isMissingColumnError(insertResult.error, 'category')) {
+        const categoryId = await getOrCreateCategory(data.category, data.type, userId)
+        await supabaseAdmin
+          .from('transactions')
+          .insert([{
+            amount: data.amount,
+            type: data.type,
+            category_id: categoryId,
+            description: data.description || '',
+            payment_method: data.payment_method || 'cash',
+            user_id: userId,
+            date: new Date().toISOString().split('T')[0]
+          }])
+      } else {
+        console.error('Erro ao salvar transação:', insertResult.error)
+      }
+    }
   } catch (error) {
     console.error('Erro ao salvar transação:', error)
   }
+}
+
+async function getOrCreateCategory(name: string, type: 'income' | 'expense', userId: string) {
+  if (!supabaseAdmin) return null
+  const trimmed = (name || '').trim()
+  if (!trimmed) return null
+
+  try {
+    const { data: existing } = await supabaseAdmin
+      .from('categories')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('name', trimmed)
+      .eq('type', type)
+      .single()
+
+    if (existing?.id) return existing.id
+
+    const { data: created } = await supabaseAdmin
+      .from('categories')
+      .insert([{ user_id: userId, name: trimmed, type }])
+      .select('id')
+      .single()
+
+    return created?.id || null
+  } catch (error) {
+    console.warn('Categorias não disponíveis:', error)
+    return null
+  }
+}
+
+function isMissingColumnError(error: any, column: string) {
+  const message = (error?.message || '').toLowerCase()
+  return message.includes(`column \"${column}\"`) || message.includes(`column "${column}"`) || message.includes('does not exist')
 }
 
 async function handleQuery(message: string, userId: string): Promise<string> {
