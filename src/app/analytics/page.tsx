@@ -15,6 +15,7 @@ interface Transaction {
   amount: number
   type: 'income' | 'expense'
   category?: string | null
+  category_id?: string | null
   description: string
   date: string
 }
@@ -32,6 +33,7 @@ export default function AnalyticsPage() {
   const [endDate, setEndDate] = useState('')
   const [search, setSearch] = useState('')
   const [currency, setCurrency] = useState('BRL')
+  const [categoriesMap, setCategoriesMap] = useState<Record<string, string>>({})
 
   const dateRange = useMemo(() => {
     if (month) {
@@ -54,8 +56,14 @@ export default function AnalyticsPage() {
   useEffect(() => {
     if (authLoading || !userId) return
     fetchProfileCurrency()
+    fetchCategories()
     fetchData()
   }, [dateFilter, dateRange.start, dateRange.end, search, authLoading, userId])
+
+  useEffect(() => {
+    if (authLoading || !userId) return
+    fetchData()
+  }, [categoriesMap])
 
   const fetchProfileCurrency = async () => {
     if (!supabase || !userId) return
@@ -67,13 +75,33 @@ export default function AnalyticsPage() {
     if (data?.currency) setCurrency(data.currency)
   }
 
+  const fetchCategories = async () => {
+    if (!supabase || !userId) return
+    try {
+      const { data } = await supabase
+        .from('categories')
+        .select('id, name')
+        .eq('user_id', userId)
+
+      if (data) {
+        const map = data.reduce((acc: Record<string, string>, row) => {
+          acc[row.id] = row.name
+          return acc
+        }, {})
+        setCategoriesMap(map)
+      }
+    } catch (error) {
+      console.warn('Categorias não disponíveis:', error)
+    }
+  }
+
   const fetchData = async () => {
     if (!supabase || !userId) return
 
     try {
       let query = supabase
         .from('transactions')
-        .select('id, amount, type, description, date, category')
+        .select('*')
         .eq('user_id', userId)
       
       if (dateRange.start || dateRange.end) {
@@ -94,25 +122,30 @@ export default function AnalyticsPage() {
         }
       }
 
-      if (search.trim()) {
-        const term = search.trim()
-        query = query.or(`categories.name.ilike.%${term}%,description.ilike.%${term}%`)
-      }
-
       const { data, error } = await query.order('date', { ascending: false })
 
       if (!error && data) {
-        setTransactions(data)
+        const rows = (data || []) as Transaction[]
+        const term = search.trim().toLowerCase()
+        const filtered = term
+          ? rows.filter((t) => {
+              const categoryName = (t.category || categoriesMap[t.category_id || ''] || '').toLowerCase()
+              const description = (t.description || '').toLowerCase()
+              return description.includes(term) || categoryName.includes(term)
+            })
+          : rows
+
+        setTransactions(filtered)
         
-        const income = data.filter(t => t.type === 'income').reduce((sum, t) => sum + Number(t.amount), 0)
-        const expense = data.filter(t => t.type === 'expense').reduce((sum, t) => sum + Number(t.amount), 0)
+        const income = filtered.filter(t => t.type === 'income').reduce((sum, t) => sum + Number(t.amount), 0)
+        const expense = filtered.filter(t => t.type === 'expense').reduce((sum, t) => sum + Number(t.amount), 0)
         setTotalIncome(income)
         setTotalExpense(expense)
 
         // Calculate category breakdown
         const categories: Record<string, number> = {}
-        data.forEach(t => {
-          const name = t.category || 'Outros'
+        filtered.forEach(t => {
+          const name = t.category || categoriesMap[t.category_id || ''] || 'Outros'
           categories[name] = (categories[name] || 0) + Number(t.amount)
         })
         setCategoryData(categories)
