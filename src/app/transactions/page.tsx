@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Navigation } from '@/components/Navigation'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/use-auth'
+import { toast } from '@/hooks/use-toast'
 
 interface Transaction {
   id: string
@@ -131,6 +132,7 @@ function TransactionsContent() {
   const fetchTransactions = async () => {
     if (!supabase || !userId) {
       console.warn('Supabase não está configurado')
+      toast({ title: 'Erro', description: 'Supabase não configurado', variant: 'destructive' })
       return
     }
     
@@ -157,11 +159,13 @@ function TransactionsContent() {
 
       if (error) {
         console.error('Erro ao buscar transações:', error)
+        toast({ title: 'Erro', description: error.message || 'Falha ao buscar transações', variant: 'destructive' })
       } else {
         setTransactions((data || []) as Transaction[])
       }
     } catch (error) {
       console.error('Erro ao buscar transações:', error)
+      toast({ title: 'Erro', description: 'Falha ao buscar transações', variant: 'destructive' })
     }
   }
 
@@ -191,7 +195,10 @@ function TransactionsContent() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!supabase || !userId) return
+    if (!supabase || !userId) {
+      toast({ title: 'Erro', description: 'Sessão inválida', variant: 'destructive' })
+      return
+    }
 
     try {
       if (editingId) {
@@ -205,16 +212,20 @@ function TransactionsContent() {
           payment_method: formData.payment_method,
         }).eq('id', editingId)
 
-        if (isMissingColumnError(updateResult.error, 'category')) {
-          const categoryId = await getOrCreateCategory(formData.category, formData.type)
-          await supabase.from('transactions').update({
-            amount: parseFloat(formData.amount),
-            type: formData.type,
-            category_id: categoryId,
-            description: formData.description,
-            date: formData.date,
-            payment_method: formData.payment_method,
-          }).eq('id', editingId)
+        if (updateResult.error) {
+          if (isMissingColumnError(updateResult.error, 'category')) {
+            const categoryId = await getOrCreateCategory(formData.category, formData.type)
+            await supabase.from('transactions').update({
+              amount: parseFloat(formData.amount),
+              type: formData.type,
+              category_id: categoryId,
+              description: formData.description,
+              date: formData.date,
+              payment_method: formData.payment_method,
+            }).eq('id', editingId)
+          } else {
+            throw updateResult.error
+          }
         }
       } else {
         // Inserir nova transação
@@ -228,24 +239,29 @@ function TransactionsContent() {
           payment_method: formData.payment_method,
         }])
 
-        if (isMissingColumnError(insertResult.error, 'category')) {
-          const categoryId = await getOrCreateCategory(formData.category, formData.type)
-          await supabase.from('transactions').insert([{
-            user_id: userId,
-            amount: parseFloat(formData.amount),
-            type: formData.type,
-            category_id: categoryId,
-            description: formData.description,
-            date: formData.date,
-            payment_method: formData.payment_method,
-          }])
+        if (insertResult.error) {
+          if (isMissingColumnError(insertResult.error, 'category')) {
+            const categoryId = await getOrCreateCategory(formData.category, formData.type)
+            await supabase.from('transactions').insert([{
+              user_id: userId,
+              amount: parseFloat(formData.amount),
+              type: formData.type,
+              category_id: categoryId,
+              description: formData.description,
+              date: formData.date,
+              payment_method: formData.payment_method,
+            }])
+          } else {
+            throw insertResult.error
+          }
         }
       }
       
       resetForm()
       fetchTransactions()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao salvar transação:', error)
+      toast({ title: 'Erro', description: error?.message || 'Falha ao salvar transação', variant: 'destructive' })
     }
   }
 
