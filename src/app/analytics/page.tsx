@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { Navigation } from '@/components/Navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,6 +21,7 @@ interface Transaction {
 }
 
 export default function AnalyticsPage() {
+  const router = useRouter()
   const { userId, loading: authLoading } = useAuth()
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [totalIncome, setTotalIncome] = useState(0)
@@ -122,6 +124,18 @@ export default function AnalyticsPage() {
   }
 
   const balance = totalIncome - totalExpense
+
+  const handleCategoryClick = (category: string) => {
+    const params = new URLSearchParams()
+    params.set('category', category)
+    if (month) {
+      params.set('month', month)
+    } else {
+      if (dateRange.start) params.set('start', dateRange.start)
+      if (dateRange.end) params.set('end', dateRange.end)
+    }
+    router.push(`/transactions?${params.toString()}`)
+  }
 
   return (
     <div className="min-h-screen bg-black">
@@ -242,7 +256,12 @@ export default function AnalyticsPage() {
                 .map(([category, amount]) => {
                   const percentage = totalIncome + totalExpense > 0 ? (amount / (totalIncome + totalExpense)) * 100 : 0
                   return (
-                    <div key={category}>
+                    <button
+                      key={category}
+                      type="button"
+                      onClick={() => handleCategoryClick(category)}
+                      className="w-full text-left"
+                    >
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-gray-300 capitalize font-medium">{category}</span>
                         <span className="text-amber-600 font-semibold">{formatCurrency(amount, currency)}</span>
@@ -254,7 +273,7 @@ export default function AnalyticsPage() {
                         ></div>
                       </div>
                       <p className="text-gray-500 text-xs mt-1">{percentage.toFixed(1)}%</p>
-                    </div>
+                    </button>
                   )
                 })
             )}
