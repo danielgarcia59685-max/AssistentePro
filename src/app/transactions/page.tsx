@@ -16,8 +16,7 @@ interface Transaction {
   id: string
   amount: number
   type: 'income' | 'expense'
-  category_id?: string | null
-  categories?: { name: string } | null
+  category?: string | null
   description: string
   date: string
   payment_method: string
@@ -45,7 +44,6 @@ function TransactionsContent() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [currency, setCurrency] = useState('BRL')
-  const [categoriesMap, setCategoriesMap] = useState<Record<string, string>>({})
   const [formData, setFormData] = useState({
     amount: '',
     type: 'expense' as 'income' | 'expense',
@@ -94,7 +92,6 @@ function TransactionsContent() {
   useEffect(() => {
     if (authLoading || !userId) return
     fetchProfileCurrency()
-    fetchCategories()
     fetchTransactions()
   }, [authLoading, userId, typeFilter, dateRange.start, dateRange.end])
 
@@ -108,22 +105,6 @@ function TransactionsContent() {
     if (data?.currency) setCurrency(data.currency)
   }
 
-  const fetchCategories = async () => {
-    if (!supabase || !userId) return
-    const { data } = await supabase
-      .from('categories')
-      .select('id, name')
-      .eq('user_id', userId)
-
-    if (data) {
-      const map = data.reduce((acc: Record<string, string>, row) => {
-        acc[row.id] = row.name
-        return acc
-      }, {})
-      setCategoriesMap(map)
-    }
-  }
-
   const fetchTransactions = async () => {
     if (!supabase || !userId) {
       console.warn('Supabase não está configurado')
@@ -133,7 +114,7 @@ function TransactionsContent() {
     try {
       let query = supabase
         .from('transactions')
-        .select('id, amount, type, description, date, payment_method, category_id')
+        .select('id, amount, type, description, date, payment_method, category')
         .eq('user_id', userId)
         .order('date', { ascending: false })
 
@@ -166,20 +147,20 @@ function TransactionsContent() {
 
     if (categoryFilter.trim()) {
       const term = categoryFilter.trim().toLowerCase()
-      rows = rows.filter((t) => (categoriesMap[t.category_id || ''] || '').toLowerCase().includes(term))
+      rows = rows.filter((t) => (t.category || '').toLowerCase().includes(term))
     }
 
     if (search.trim()) {
       const term = search.trim().toLowerCase()
       rows = rows.filter((t) => {
-        const categoryName = (categoriesMap[t.category_id || ''] || '').toLowerCase()
+        const categoryName = (t.category || '').toLowerCase()
         const description = (t.description || '').toLowerCase()
         return description.includes(term) || categoryName.includes(term)
       })
     }
 
     return rows
-  }, [transactions, categoryFilter, search, categoriesMap])
+  }, [transactions, categoryFilter, search])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -188,23 +169,21 @@ function TransactionsContent() {
     try {
       if (editingId) {
         // Atualizar transação existente
-        const categoryId = await getOrCreateCategory(formData.category, formData.type)
         await supabase.from('transactions').update({
           amount: parseFloat(formData.amount),
           type: formData.type,
-          category_id: categoryId,
+          category: formData.category,
           description: formData.description,
           date: formData.date,
           payment_method: formData.payment_method,
         }).eq('id', editingId)
       } else {
-        const categoryId = await getOrCreateCategory(formData.category, formData.type)
         // Inserir nova transação
         await supabase.from('transactions').insert([{
           user_id: userId,
           amount: parseFloat(formData.amount),
           type: formData.type,
-          category_id: categoryId,
+          category: formData.category,
           description: formData.description,
           date: formData.date,
           payment_method: formData.payment_method,
@@ -246,7 +225,7 @@ function TransactionsContent() {
     setFormData({
       amount: transaction.amount.toString(),
       type: transaction.type,
-      category: categoriesMap[transaction.category_id || ''] || '',
+      category: transaction.category || '',
       description: transaction.description,
       date: transaction.date.split('T')[0],
       payment_method: transaction.payment_method,
@@ -255,26 +234,6 @@ function TransactionsContent() {
     setShowForm(true)
   }
 
-  const getOrCreateCategory = async (name: string, type: 'income' | 'expense') => {
-    if (!name.trim()) return null
-    const { data: existing } = await supabase
-      .from('categories')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('name', name.trim())
-      .eq('type', type)
-      .single()
-
-    if (existing?.id) return existing.id
-
-    const { data: created } = await supabase
-      .from('categories')
-      .insert([{ user_id: userId, name: name.trim(), type }])
-      .select('id')
-      .single()
-
-    return created?.id || null
-  }
 
   return (
     <div className="min-h-screen bg-black">
@@ -507,7 +466,7 @@ function TransactionsContent() {
                         {new Date(transaction.date).toLocaleDateString('pt-BR')}
                       </TableCell>
                       <TableCell className="text-gray-300">{transaction.description}</TableCell>
-                      <TableCell className="text-gray-300 capitalize">{categoriesMap[transaction.category_id || ''] || '-'}</TableCell>
+                      <TableCell className="text-gray-300 capitalize">{transaction.category || '-'}</TableCell>
                       <TableCell className="text-gray-300 capitalize">{formatPaymentMethod(transaction.payment_method)}</TableCell>
                       <TableCell className={`font-bold text-right ${
                         transaction.type === 'income' ? 'text-green-500' : 'text-red-500'

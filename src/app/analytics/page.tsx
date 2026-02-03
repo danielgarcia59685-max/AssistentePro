@@ -14,8 +14,7 @@ interface Transaction {
   id: string
   amount: number
   type: 'income' | 'expense'
-  category_id?: string | null
-  categories?: { name: string } | null
+  category?: string | null
   description: string
   date: string
 }
@@ -74,7 +73,7 @@ export default function AnalyticsPage() {
     try {
       let query = supabase
         .from('transactions')
-        .select('id, amount, type, description, date, category_id, categories(name)')
+        .select('id, amount, type, description, date, category')
         .eq('user_id', userId)
       
       if (dateRange.start || dateRange.end) {
@@ -113,7 +112,7 @@ export default function AnalyticsPage() {
         // Calculate category breakdown
         const categories: Record<string, number> = {}
         data.forEach(t => {
-          const name = t.categories?.name || 'Outros'
+          const name = t.category || 'Outros'
           categories[name] = (categories[name] || 0) + Number(t.amount)
         })
         setCategoryData(categories)

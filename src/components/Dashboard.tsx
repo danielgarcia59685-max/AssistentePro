@@ -15,8 +15,7 @@ interface Transaction {
   id: string
   amount: number
   type: 'income' | 'expense'
-  category_id?: string | null
-  categories?: { name: string } | null
+  category?: string | null
   description: string
   date: string
 }
@@ -79,7 +78,7 @@ export default function Dashboard() {
     try {
       const { data, error } = await supabase
         .from('transactions')
-        .select('id, amount, type, description, date, category_id, categories(name)')
+        .select('id, amount, type, description, date, category')
         .eq('user_id', userId)
         .order('date', { ascending: false })
         .limit(10)
@@ -141,14 +140,13 @@ export default function Dashboard() {
     }
 
     try {
-      const categoryId = await getOrCreateCategory(formData.category, formData.type)
       if (editingId) {
         const { error } = await supabase
           .from('transactions')
           .update({
             amount: parseFloat(formData.amount),
             type: formData.type,
-            category_id: categoryId,
+            category: formData.category,
             description: formData.description,
             date: formData.date
           })
@@ -171,7 +169,7 @@ export default function Dashboard() {
             user_id: userId,
             amount: parseFloat(formData.amount),
             type: formData.type,
-            category_id: categoryId,
+            category: formData.category,
             description: formData.description,
             date: formData.date
           }])
@@ -197,35 +195,11 @@ export default function Dashboard() {
     setFormData({
       amount: t.amount.toString(),
       type: t.type,
-      category: t.categories?.name || '',
+      category: t.category || '',
       description: t.description,
       date: t.date.split('T')[0]
     })
     setShowAddForm(true)
-  }
-
-  const getOrCreateCategory = async (name: string, type: 'income' | 'expense') => {
-    if (!supabase || !userId) return null
-    const trimmed = name.trim()
-    if (!trimmed) return null
-
-    const { data: existing } = await supabase
-      .from('categories')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('name', trimmed)
-      .eq('type', type)
-      .single()
-
-    if (existing?.id) return existing.id
-
-    const { data: created } = await supabase
-      .from('categories')
-      .insert([{ user_id: userId, name: trimmed, type }])
-      .select('id')
-      .single()
-
-    return created?.id || null
   }
 
   const handleDeleteTransaction = async (id: string) => {
@@ -466,7 +440,7 @@ export default function Dashboard() {
                         }`}>
                           {transaction.type === 'income' ? 'Receita' : 'Despesa'}
                         </span>
-                        <h4 className="text-white font-semibold capitalize">{transaction.categories?.name || '-'}</h4>
+                        <h4 className="text-white font-semibold capitalize">{transaction.category || '-'}</h4>
                       </div>
                       <p className="text-gray-400 text-sm mt-1">{transaction.description}</p>
                       <p className="text-gray-500 text-xs mt-1">
