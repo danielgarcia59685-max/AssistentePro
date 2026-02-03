@@ -17,6 +17,7 @@ interface Transaction {
   amount: number
   type: 'income' | 'expense'
   category?: string | null
+  category_id?: string | null
   description: string
   date: string
   payment_method: string
@@ -44,6 +45,7 @@ function TransactionsContent() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [currency, setCurrency] = useState('BRL')
+  const [categoriesMap, setCategoriesMap] = useState<Record<string, string>>({})
   const [formData, setFormData] = useState({
     amount: '',
     type: 'expense' as 'income' | 'expense',
@@ -92,6 +94,7 @@ function TransactionsContent() {
   useEffect(() => {
     if (authLoading || !userId) return
     fetchProfileCurrency()
+    fetchCategories()
     fetchTransactions()
   }, [authLoading, userId, typeFilter, dateRange.start, dateRange.end])
 
@@ -105,6 +108,26 @@ function TransactionsContent() {
     if (data?.currency) setCurrency(data.currency)
   }
 
+  const fetchCategories = async () => {
+    if (!supabase || !userId) return
+    try {
+      const { data } = await supabase
+        .from('categories')
+        .select('id, name')
+        .eq('user_id', userId)
+
+      if (data) {
+        const map = data.reduce((acc: Record<string, string>, row) => {
+          acc[row.id] = row.name
+          return acc
+        }, {})
+        setCategoriesMap(map)
+      }
+    } catch (error) {
+      console.warn('Categorias não disponíveis:', error)
+    }
+  }
+
   const fetchTransactions = async () => {
     if (!supabase || !userId) {
       console.warn('Supabase não está configurado')
@@ -114,7 +137,7 @@ function TransactionsContent() {
     try {
       let query = supabase
         .from('transactions')
-        .select('id, amount, type, description, date, payment_method, category')
+        .select('*')
         .eq('user_id', userId)
         .order('date', { ascending: false })
 
@@ -135,11 +158,15 @@ function TransactionsContent() {
       if (error) {
         console.error('Erro ao buscar transações:', error)
       } else {
-        setTransactions(data || [])
+        setTransactions((data || []) as Transaction[])
       }
     } catch (error) {
       console.error('Erro ao buscar transações:', error)
     }
+  }
+
+  const getCategoryName = (transaction: Transaction) => {
+    return transaction.category || categoriesMap[transaction.category_id || ''] || ''
   }
 
   const visibleTransactions = useMemo(() => {
@@ -147,13 +174,13 @@ function TransactionsContent() {
 
     if (categoryFilter.trim()) {
       const term = categoryFilter.trim().toLowerCase()
-      rows = rows.filter((t) => (t.category || '').toLowerCase().includes(term))
+      rows = rows.filter((t) => getCategoryName(t).toLowerCase().includes(term))
     }
 
     if (search.trim()) {
       const term = search.trim().toLowerCase()
       rows = rows.filter((t) => {
-        const categoryName = (t.category || '').toLowerCase()
+        const categoryName = getCategoryName(t).toLowerCase()
         const description = (t.description || '').toLowerCase()
         return description.includes(term) || categoryName.includes(term)
       })
@@ -169,7 +196,7 @@ function TransactionsContent() {
     try {
       if (editingId) {
         // Atualizar transação existente
-        await supabase.from('transactions').update({
+        const updateResult = await supabase.from('transactions').update({
           amount: parseFloat(formData.amount),
           type: formData.type,
           category: formData.category,
@@ -177,9 +204,21 @@ function TransactionsContent() {
           date: formData.date,
           payment_method: formData.payment_method,
         }).eq('id', editingId)
+
+        if (isMissingColumnError(updateResult.error, 'category')) {
+          const categoryId = await getOrCreateCategory(formData.category, formData.type)
+          await supabase.from('transactions').update({
+            amount: parseFloat(formData.amount),
+            type: formData.type,
+            category_id: categoryId,
+            description: formData.description,
+            date: formData.date,
+            payment_method: formData.payment_method,
+          }).eq('id', editingId)
+        }
       } else {
         // Inserir nova transação
-        await supabase.from('transactions').insert([{
+        const insertResult = await supabase.from('transactions').insert([{
           user_id: userId,
           amount: parseFloat(formData.amount),
           type: formData.type,
@@ -188,6 +227,19 @@ function TransactionsContent() {
           date: formData.date,
           payment_method: formData.payment_method,
         }])
+
+        if (isMissingColumnError(insertResult.error, 'category')) {
+          const categoryId = await getOrCreateCategory(formData.category, formData.type)
+          await supabase.from('transactions').insert([{
+            user_id: userId,
+            amount: parseFloat(formData.amount),
+            type: formData.type,
+            category_id: categoryId,
+            description: formData.description,
+            date: formData.date,
+            payment_method: formData.payment_method,
+          }])
+        }
       }
       
       resetForm()
@@ -225,13 +277,44 @@ function TransactionsContent() {
     setFormData({
       amount: transaction.amount.toString(),
       type: transaction.type,
-      category: transaction.category || '',
+      category: getCategoryName(transaction) || '',
       description: transaction.description,
       date: transaction.date.split('T')[0],
       payment_method: transaction.payment_method,
     })
     setEditingId(transaction.id)
     setShowForm(true)
+  }
+
+  const getOrCreateCategory = async (name: string, type: 'income' | 'expense') => {
+    if (!name.trim() || !supabase || !userId) return null
+    try {
+      const { data: existing } = await supabase
+        .from('categories')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('name', name.trim())
+        .eq('type', type)
+        .single()
+
+      if (existing?.id) return existing.id
+
+      const { data: created } = await supabase
+        .from('categories')
+        .insert([{ user_id: userId, name: name.trim(), type }])
+        .select('id')
+        .single()
+
+      return created?.id || null
+    } catch (error) {
+      console.warn('Categorias não disponíveis:', error)
+      return null
+    }
+  }
+
+  const isMissingColumnError = (error: any, column: string) => {
+    const message = (error?.message || '').toLowerCase()
+    return message.includes(`column \"${column}\"`) || message.includes(`column "${column}"`) || message.includes('does not exist')
   }
 
 
@@ -466,7 +549,7 @@ function TransactionsContent() {
                         {new Date(transaction.date).toLocaleDateString('pt-BR')}
                       </TableCell>
                       <TableCell className="text-gray-300">{transaction.description}</TableCell>
-                      <TableCell className="text-gray-300 capitalize">{transaction.category || '-'}</TableCell>
+                      <TableCell className="text-gray-300 capitalize">{getCategoryName(transaction) || '-'}</TableCell>
                       <TableCell className="text-gray-300 capitalize">{formatPaymentMethod(transaction.payment_method)}</TableCell>
                       <TableCell className={`font-bold text-right ${
                         transaction.type === 'income' ? 'text-green-500' : 'text-red-500'

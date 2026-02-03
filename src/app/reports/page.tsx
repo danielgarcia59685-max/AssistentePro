@@ -31,6 +31,7 @@ export default function ReportsPage() {
   const [endDate, setEndDate] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [currency, setCurrency] = useState('BRL')
+  const [categoriesMap, setCategoriesMap] = useState<Record<string, string>>({})
   const { userId, loading: authLoading } = useAuth()
 
   const dateRange = useMemo(() => {
@@ -54,9 +55,15 @@ export default function ReportsPage() {
   useEffect(() => {
     if (authLoading || !userId) return
     fetchProfileCurrency()
+    fetchCategories()
     fetchMonthlyReport()
     fetchCategoryReport()
   }, [authLoading, userId, dateRange.start, dateRange.end])
+
+  useEffect(() => {
+    if (authLoading || !userId) return
+    fetchCategoryReport()
+  }, [categoriesMap])
 
   const fetchProfileCurrency = async () => {
     if (!supabase || !userId) return
@@ -67,6 +74,26 @@ export default function ReportsPage() {
       .single()
 
     if (data?.currency) setCurrency(data.currency)
+  }
+
+  const fetchCategories = async () => {
+    if (!supabase || !userId) return
+    try {
+      const { data } = await supabase
+        .from('categories')
+        .select('id, name')
+        .eq('user_id', userId)
+
+      if (data) {
+        const map = data.reduce((acc: Record<string, string>, row) => {
+          acc[row.id] = row.name
+          return acc
+        }, {})
+        setCategoriesMap(map)
+      }
+    } catch (error) {
+      console.warn('Categorias não disponíveis:', error)
+    }
   }
 
   const fetchMonthlyReport = async () => {
@@ -122,7 +149,7 @@ export default function ReportsPage() {
     
     let query = supabase
       .from('transactions')
-      .select('amount, category')
+      .select('*')
       .eq('type', 'expense')
       .eq('user_id', userId)
 
@@ -138,8 +165,8 @@ export default function ReportsPage() {
 
     if (error) console.error(error)
     else {
-      const grouped = data.reduce((acc, transaction) => {
-        const category = transaction.category || 'Outros'
+      const grouped = data.reduce((acc, transaction: any) => {
+        const category = transaction.category || categoriesMap[transaction.category_id || ''] || 'Outros'
         acc[category] = (acc[category] || 0) + Number(transaction.amount)
         return acc
       }, {} as Record<string, number>)

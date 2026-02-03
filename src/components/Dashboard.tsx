@@ -16,6 +16,7 @@ interface Transaction {
   amount: number
   type: 'income' | 'expense'
   category?: string | null
+  category_id?: string | null
   description: string
   date: string
 }
@@ -34,6 +35,7 @@ export default function Dashboard() {
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [currency, setCurrency] = useState('BRL')
+  const [categoriesMap, setCategoriesMap] = useState<Record<string, string>>({})
   
   // Form state
   const [formData, setFormData] = useState({
@@ -48,6 +50,7 @@ export default function Dashboard() {
     if (!authLoading && userId) {
       if (supabase) {
         fetchProfileCurrency()
+        fetchCategories()
         fetchTransactions()
         fetchSummary()
       } else {
@@ -69,6 +72,26 @@ export default function Dashboard() {
     }
   }
 
+  const fetchCategories = async () => {
+    if (!supabase || !userId) return
+    try {
+      const { data } = await supabase
+        .from('categories')
+        .select('id, name')
+        .eq('user_id', userId)
+
+      if (data) {
+        const map = data.reduce((acc: Record<string, string>, row) => {
+          acc[row.id] = row.name
+          return acc
+        }, {})
+        setCategoriesMap(map)
+      }
+    } catch (error) {
+      console.warn('Categorias não disponíveis:', error)
+    }
+  }
+
   const fetchTransactions = async () => {
     if (!supabase || !userId) {
       console.warn('Supabase ou userId não configurado')
@@ -78,7 +101,7 @@ export default function Dashboard() {
     try {
       const { data, error } = await supabase
         .from('transactions')
-        .select('id, amount, type, description, date, category')
+        .select('*')
         .eq('user_id', userId)
         .order('date', { ascending: false })
         .limit(10)
@@ -86,7 +109,7 @@ export default function Dashboard() {
       if (error) {
         console.error('Erro ao buscar transações:', error)
       } else if (data) {
-        setTransactions(data)
+        setTransactions(data as Transaction[])
       }
     } catch (error) {
       console.error('Erro ao buscar transações:', error)
@@ -195,11 +218,15 @@ export default function Dashboard() {
     setFormData({
       amount: t.amount.toString(),
       type: t.type,
-      category: t.category || '',
+      category: getCategoryName(t) || '',
       description: t.description,
       date: t.date.split('T')[0]
     })
     setShowAddForm(true)
+  }
+
+  const getCategoryName = (transaction: Transaction) => {
+    return transaction.category || categoriesMap[transaction.category_id || ''] || ''
   }
 
   const handleDeleteTransaction = async (id: string) => {
@@ -440,7 +467,7 @@ export default function Dashboard() {
                         }`}>
                           {transaction.type === 'income' ? 'Receita' : 'Despesa'}
                         </span>
-                        <h4 className="text-white font-semibold capitalize">{transaction.category || '-'}</h4>
+                        <h4 className="text-white font-semibold capitalize">{getCategoryName(transaction) || '-'}</h4>
                       </div>
                       <p className="text-gray-400 text-sm mt-1">{transaction.description}</p>
                       <p className="text-gray-500 text-xs mt-1">
