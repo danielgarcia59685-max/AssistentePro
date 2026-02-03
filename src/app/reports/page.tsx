@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
@@ -32,6 +31,12 @@ export default function ReportsPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [currency, setCurrency] = useState('BRL')
   const [categoriesMap, setCategoriesMap] = useState<Record<string, string>>({})
+
+  const totals = useMemo(() => {
+    const income = monthlyData.reduce((sum, row) => sum + Number(row.income || 0), 0)
+    const expense = monthlyData.reduce((sum, row) => sum + Number(row.expense || 0), 0)
+    return { income, expense, balance: income - expense }
+  }, [monthlyData])
   const { userId, loading: authLoading } = useAuth()
 
   const dateRange = useMemo(() => {
@@ -194,16 +199,34 @@ export default function ReportsPage() {
     <div className="min-h-screen bg-black">
       <Navigation />
       <main className="max-w-7xl mx-auto px-6 py-8">
-        <h1 className="text-3xl font-bold mb-6 text-white">Relatórios</h1>
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold text-white mb-2">Relatórios</h1>
+          <p className="text-gray-400">Análise detalhada de seus gastos e receitas</p>
+        </div>
 
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Filtros</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
+            <p className="text-gray-400 text-sm mb-2">Receitas</p>
+            <p className="text-3xl font-bold text-green-500">{formatCurrency(totals.income, currency)}</p>
+            <p className="text-xs text-gray-500 mt-2">Período selecionado</p>
+          </div>
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
+            <p className="text-gray-400 text-sm mb-2">Despesas</p>
+            <p className="text-3xl font-bold text-red-500">{formatCurrency(totals.expense, currency)}</p>
+            <p className="text-xs text-gray-500 mt-2">Período selecionado</p>
+          </div>
+          <div className="bg-gray-900 rounded-2xl border border-amber-600/30 p-6">
+            <p className="text-amber-600 text-sm mb-2 font-medium">Saldo</p>
+            <p className="text-3xl font-bold text-amber-600">{formatCurrency(totals.balance, currency)}</p>
+            <p className="text-xs text-gray-500 mt-2">Receitas - Despesas</p>
+          </div>
+        </div>
+
+        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
+          <h2 className="text-xl font-semibold text-white mb-4">Filtros</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label>Mês</Label>
+              <Label className="text-gray-300">Mês</Label>
               <Input
                 type="month"
                 value={month}
@@ -214,10 +237,11 @@ export default function ReportsPage() {
                     setEndDate('')
                   }
                 }}
+                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
               />
             </div>
             <div className="space-y-2">
-              <Label>Data inicial</Label>
+              <Label className="text-gray-300">Data inicial</Label>
               <Input
                 type="date"
                 value={startDate}
@@ -225,10 +249,11 @@ export default function ReportsPage() {
                   setStartDate(e.target.value)
                   if (e.target.value) setMonth('')
                 }}
+                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
               />
             </div>
             <div className="space-y-2">
-              <Label>Data final</Label>
+              <Label className="text-gray-300">Data final</Label>
               <Input
                 type="date"
                 value={endDate}
@@ -236,6 +261,7 @@ export default function ReportsPage() {
                   setEndDate(e.target.value)
                   if (e.target.value) setMonth('')
                 }}
+                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
               />
             </div>
           </div>
@@ -253,33 +279,25 @@ export default function ReportsPage() {
             </Button>
             {isLoading && <span className="text-sm text-gray-500">Atualizando relatórios...</span>}
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Receitas vs Despesas por Mês</CardTitle>
-          </CardHeader>
-          <CardContent>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
+            <h2 className="text-xl font-semibold text-white mb-4">Receitas vs Despesas por Mês</h2>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={monthlyData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis />
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="month" stroke="#9CA3AF" />
+                <YAxis stroke="#9CA3AF" />
                 <Tooltip formatter={(value: number) => formatCurrency(value, currency)} />
-                <Bar dataKey="income" fill="#00C49F" name="Receitas" />
-                <Bar dataKey="expense" fill="#FF8042" name="Despesas" />
+                <Bar dataKey="income" fill="#10B981" name="Receitas" />
+                <Bar dataKey="expense" fill="#F97316" name="Despesas" />
               </BarChart>
             </ResponsiveContainer>
-          </CardContent>
-        </Card>
+          </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Gastos por Categoria</CardTitle>
-          </CardHeader>
-          <CardContent>
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
+            <h2 className="text-xl font-semibold text-white mb-4">Gastos por Categoria</h2>
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie
@@ -313,9 +331,8 @@ export default function ReportsPage() {
                 ))}
               </div>
             )}
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </div>
       </main>
     </div>
   )
