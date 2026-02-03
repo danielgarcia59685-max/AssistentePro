@@ -164,7 +164,7 @@ export default function Dashboard() {
 
     try {
       if (editingId) {
-        const { error } = await supabase
+        const updateResult = await supabase
           .from('transactions')
           .update({
             amount: parseFloat(formData.amount),
@@ -175,9 +175,30 @@ export default function Dashboard() {
           })
           .eq('id', editingId)
 
-        if (error) {
-          console.error('Erro ao atualizar transação:', error)
-          alert(`Erro ao atualizar transação: ${error.message}`)
+        if (updateResult.error) {
+          if (isMissingColumnError(updateResult.error, 'category')) {
+            const categoryId = await getOrCreateCategory(formData.category, formData.type)
+            const fallbackResult = await supabase
+              .from('transactions')
+              .update({
+                amount: parseFloat(formData.amount),
+                type: formData.type,
+                category_id: categoryId,
+                description: formData.description,
+                date: formData.date
+              })
+              .eq('id', editingId)
+
+            if (fallbackResult.error) {
+              console.error('Erro ao atualizar transação:', fallbackResult.error)
+              alert(`Erro ao atualizar transação: ${fallbackResult.error.message}`)
+              return
+            }
+          } else {
+            console.error('Erro ao atualizar transação:', updateResult.error)
+            alert(`Erro ao atualizar transação: ${updateResult.error.message}`)
+            return
+          }
         } else {
           setEditingId(null)
           setShowAddForm(false)
@@ -186,7 +207,7 @@ export default function Dashboard() {
           fetchSummary()
         }
       } else {
-        const { error } = await supabase
+        const insertResult = await supabase
           .from('transactions')
           .insert([{
             user_id: userId,
@@ -197,9 +218,30 @@ export default function Dashboard() {
             date: formData.date
           }])
 
-        if (error) {
-          console.error('Erro ao adicionar transação:', error)
-          alert(`Erro ao adicionar transação: ${error.message}`)
+        if (insertResult.error) {
+          if (isMissingColumnError(insertResult.error, 'category')) {
+            const categoryId = await getOrCreateCategory(formData.category, formData.type)
+            const fallbackResult = await supabase
+              .from('transactions')
+              .insert([{
+                user_id: userId,
+                amount: parseFloat(formData.amount),
+                type: formData.type,
+                category_id: categoryId,
+                description: formData.description,
+                date: formData.date
+              }])
+
+            if (fallbackResult.error) {
+              console.error('Erro ao adicionar transação:', fallbackResult.error)
+              alert(`Erro ao adicionar transação: ${fallbackResult.error.message}`)
+              return
+            }
+          } else {
+            console.error('Erro ao adicionar transação:', insertResult.error)
+            alert(`Erro ao adicionar transação: ${insertResult.error.message}`)
+            return
+          }
         } else {
           setFormData({ amount: '', type: 'expense', category: '', description: '', date: new Date().toISOString().split('T')[0] })
           setShowAddForm(false)
@@ -227,6 +269,37 @@ export default function Dashboard() {
 
   const getCategoryName = (transaction: Transaction) => {
     return transaction.category || categoriesMap[transaction.category_id || ''] || ''
+  }
+
+  const getOrCreateCategory = async (name: string, type: 'income' | 'expense') => {
+    if (!name.trim() || !supabase || !userId) return null
+    try {
+      const { data: existing } = await supabase
+        .from('categories')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('name', name.trim())
+        .eq('type', type)
+        .single()
+
+      if (existing?.id) return existing.id
+
+      const { data: created } = await supabase
+        .from('categories')
+        .insert([{ user_id: userId, name: name.trim(), type }])
+        .select('id')
+        .single()
+
+      return created?.id || null
+    } catch (error) {
+      console.warn('Categorias não disponíveis:', error)
+      return null
+    }
+  }
+
+  const isMissingColumnError = (error: any, column: string) => {
+    const message = (error?.message || '').toLowerCase()
+    return message.includes(`column \"${column}\"`) || message.includes(`column "${column}"`) || message.includes('does not exist')
   }
 
   const handleDeleteTransaction = async (id: string) => {
