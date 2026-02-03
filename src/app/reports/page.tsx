@@ -122,7 +122,7 @@ export default function ReportsPage() {
     
     let query = supabase
       .from('transactions')
-      .select('amount, categories(name)')
+      .select('amount, category')
       .eq('type', 'expense')
       .eq('user_id', userId)
 
@@ -139,7 +139,7 @@ export default function ReportsPage() {
     if (error) console.error(error)
     else {
       const grouped = data.reduce((acc, transaction) => {
-        const category = transaction.categories?.name || 'Outros'
+        const category = transaction.category || 'Outros'
         acc[category] = (acc[category] || 0) + Number(transaction.amount)
         return acc
       }, {} as Record<string, number>)
