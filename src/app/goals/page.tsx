@@ -79,7 +79,9 @@ export default function GoalsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!supabase) return
-    if (!userId) {
+    const { data: sessionData } = await supabase.auth.getSession()
+    const sessionUserId = sessionData.session?.user?.id || null
+    if (!sessionUserId) {
       toast({ title: 'Sessão expirada', description: 'Faça login novamente para salvar a meta', variant: 'destructive' })
       return
     }
@@ -106,7 +108,7 @@ export default function GoalsPage() {
         }).eq('id', editingId).throwOnError()
       } else {
         await supabase.from('financial_goals').insert([{
-          user_id: userId,
+          user_id: sessionUserId,
           name: formData.name,
           target_amount: parseFloat(formData.target_amount),
           current_amount: parseFloat(formData.current_amount) || 0,
@@ -118,9 +120,10 @@ export default function GoalsPage() {
       resetForm()
       fetchGoals()
       toast({ title: 'Sucesso', description: 'Meta salva com sucesso' })
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao salvar meta:', error)
-      toast({ title: 'Erro', description: 'Não foi possível salvar a meta', variant: 'destructive' })
+      const message = error?.message || 'Não foi possível salvar a meta'
+      toast({ title: 'Erro', description: message, variant: 'destructive' })
     } finally {
       setIsSubmitting(false)
     }

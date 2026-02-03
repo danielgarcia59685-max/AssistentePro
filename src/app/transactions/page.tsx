@@ -45,6 +45,7 @@ function TransactionsContent() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [currency, setCurrency] = useState('BRL')
+  const [categoriesMap, setCategoriesMap] = useState<Record<string, string>>({})
   const [formData, setFormData] = useState({
     amount: '',
     type: 'expense' as 'income' | 'expense',
@@ -93,8 +94,9 @@ function TransactionsContent() {
   useEffect(() => {
     if (authLoading || !userId) return
     fetchProfileCurrency()
+    fetchCategories()
     fetchTransactions()
-  }, [authLoading, userId, categoryFilter, search, typeFilter, dateRange.start, dateRange.end])
+  }, [authLoading, userId, typeFilter, dateRange.start, dateRange.end])
 
   const fetchProfileCurrency = async () => {
     if (!supabase || !userId) return
@@ -106,6 +108,22 @@ function TransactionsContent() {
     if (data?.currency) setCurrency(data.currency)
   }
 
+  const fetchCategories = async () => {
+    if (!supabase || !userId) return
+    const { data } = await supabase
+      .from('categories')
+      .select('id, name')
+      .eq('user_id', userId)
+
+    if (data) {
+      const map = data.reduce((acc: Record<string, string>, row) => {
+        acc[row.id] = row.name
+        return acc
+      }, {})
+      setCategoriesMap(map)
+    }
+  }
+
   const fetchTransactions = async () => {
     if (!supabase || !userId) {
       console.warn('Supabase não está configurado')
@@ -115,21 +133,12 @@ function TransactionsContent() {
     try {
       let query = supabase
         .from('transactions')
-        .select('id, amount, type, description, date, payment_method, category_id, categories(name)')
+        .select('id, amount, type, description, date, payment_method, category_id')
         .eq('user_id', userId)
         .order('date', { ascending: false })
 
       if (typeFilter !== 'all') {
         query = query.eq('type', typeFilter)
-      }
-
-      if (categoryFilter.trim()) {
-        query = query.ilike('categories.name', `%${categoryFilter.trim()}%`)
-      }
-
-      if (search.trim()) {
-        const term = search.trim()
-        query = query.or(`description.ilike.%${term}%,categories.name.ilike.%${term}%`)
       }
 
       if (dateRange.start) {
@@ -151,6 +160,26 @@ function TransactionsContent() {
       console.error('Erro ao buscar transações:', error)
     }
   }
+
+  const visibleTransactions = useMemo(() => {
+    let rows = [...transactions]
+
+    if (categoryFilter.trim()) {
+      const term = categoryFilter.trim().toLowerCase()
+      rows = rows.filter((t) => (categoriesMap[t.category_id || ''] || '').toLowerCase().includes(term))
+    }
+
+    if (search.trim()) {
+      const term = search.trim().toLowerCase()
+      rows = rows.filter((t) => {
+        const categoryName = (categoriesMap[t.category_id || ''] || '').toLowerCase()
+        const description = (t.description || '').toLowerCase()
+        return description.includes(term) || categoryName.includes(term)
+      })
+    }
+
+    return rows
+  }, [transactions, categoryFilter, search, categoriesMap])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -217,7 +246,7 @@ function TransactionsContent() {
     setFormData({
       amount: transaction.amount.toString(),
       type: transaction.type,
-      category: transaction.categories?.name || '',
+      category: categoriesMap[transaction.category_id || ''] || '',
       description: transaction.description,
       date: transaction.date.split('T')[0],
       payment_method: transaction.payment_method,
@@ -465,20 +494,20 @@ function TransactionsContent() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {transactions.length === 0 ? (
+                {visibleTransactions.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-12">
                       <p className="text-gray-400">Nenhuma transação registrada</p>
                     </TableCell>
                   </TableRow>
                 ) : (
-                  transactions.map((transaction) => (
+                  visibleTransactions.map((transaction) => (
                     <TableRow key={transaction.id} className="border-b border-gray-800 hover:bg-gray-800/30 transition">
                       <TableCell className="text-gray-300 py-4">
                         {new Date(transaction.date).toLocaleDateString('pt-BR')}
                       </TableCell>
                       <TableCell className="text-gray-300">{transaction.description}</TableCell>
-                      <TableCell className="text-gray-300 capitalize">{transaction.categories?.name || '-'}</TableCell>
+                      <TableCell className="text-gray-300 capitalize">{categoriesMap[transaction.category_id || ''] || '-'}</TableCell>
                       <TableCell className="text-gray-300 capitalize">{formatPaymentMethod(transaction.payment_method)}</TableCell>
                       <TableCell className={`font-bold text-right ${
                         transaction.type === 'income' ? 'text-green-500' : 'text-red-500'
