@@ -41,9 +41,13 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+ layout
         <TransactionsProvider>
           {children}
         </TransactionsProvider>
+
+        {children}
+main
       </body>
     </html>
   );
