@@ -17,37 +17,35 @@ const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
   ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
   : null
 
-// GET handler para verificação do webhook
+// GET handler para verificação do webhook (WhatsApp Cloud API)
 export async function GET(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams
-  const mode = searchParams.get('hub.mode')
-  const token = searchParams.get('hub.verify_token')
-  const challenge = searchParams.get('hub.challenge')
+  const { searchParams } = request.nextUrl;
+  const mode = searchParams.get('hub.mode');
+  const token = searchParams.get('hub.verify_token');
+  const challenge = searchParams.get('hub.challenge');
 
-  if (mode === 'subscribe' && token && token === META_VERIFY_TOKEN) {
-    return new NextResponse(challenge || '', { status: 200 })
+  if (mode === 'subscribe' && token === META_VERIFY_TOKEN) {
+    return new Response(challenge, { status: 200 });
   }
-
-  return NextResponse.json({ error: 'Invalid verification token' }, { status: 403 })
+  return new Response('Forbidden', { status: 403 });
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const payload = await request.json()
-
-    const change = payload?.entry?.[0]?.changes?.[0]?.value
-    const message = change?.messages?.[0]
-    const from = message?.from as string | undefined
-    const text = message?.text?.body as string | undefined
-    const audioId = message?.audio?.id as string | undefined
+    const payload = await request.json();
+    const change = payload?.entry?.[0]?.changes?.[0]?.value;
+    const message = change?.messages?.[0];
+    const from = message?.from as string | undefined;
+    const text = message?.text?.body as string | undefined;
+    const audioId = message?.audio?.id as string | undefined;
 
     if (!from || (!text && !audioId)) {
-      return NextResponse.json({ success: true })
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
     }
 
     if (!supabaseAdmin) {
-      console.warn('Supabase não está configurado')
-      return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 })
+      console.warn('Supabase não está configurado');
+      return new Response(JSON.stringify({ error: 'Supabase not configured' }), { status: 500 });
     }
 
     // Encontrar ou criar usuário baseado no número
@@ -55,37 +53,38 @@ export async function POST(request: NextRequest) {
       .from('users')
       .select('*')
       .eq('email', from)
-      .single()
+      .single();
 
     if (!user) {
       const { data: newUser, error: createError } = await supabaseAdmin
         .from('users')
         .insert([{ name: `User ${from}`, email: from }])
         .select()
-        .single()
+        .single();
 
       if (createError) {
-        console.error('Erro ao criar usuário:', createError)
-        return NextResponse.json({ error: 'Erro ao criar usuário' }, { status: 500 })
+        console.error('Erro ao criar usuário:', createError);
+        return new Response(JSON.stringify({ error: 'Erro ao criar usuário' }), { status: 500 });
       }
-      user = newUser
+      user = newUser;
     }
 
-    const content = text || (await transcribeAudio(audioId))
+    const content = text || (await transcribeAudio(audioId));
     if (!content) {
-      await sendMetaMessage(from, 'Não consegui ler sua mensagem. Tente enviar em texto.')
-      return NextResponse.json({ success: true })
+      await sendMetaMessage(from, 'Não consegui ler sua mensagem. Tente enviar em texto.');
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
     }
 
-    const response = await processMessage(content, user.id)
-    await sendMetaMessage(from, response)
+    const response = await processMessage(content, user.id);
+    await sendMetaMessage(from, response);
 
-    return NextResponse.json({ success: true })
+    return new Response(JSON.stringify({ success: true }), { status: 200 });
   } catch (error) {
-    console.error('Erro ao processar webhook:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Erro ao processar webhook:', error);
+    return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
   }
 }
+// ...restante do código de helpers permanece igual...
 
 async function processMessage(message: string, userId: string): Promise<string> {
   if (!openai) {
@@ -215,6 +214,7 @@ async function handleQuery(message: string, userId: string): Promise<string> {
 
   if (lowerMessage.includes('saldo') || lowerMessage.includes('quanto tenho')) {
     // Calcular saldo
+    if (!supabaseAdmin) return 'Erro: Supabase não está configurado.';
     const { data: incomes } = await supabaseAdmin
       .from('transactions')
       .select('amount')
@@ -237,7 +237,7 @@ async function handleQuery(message: string, userId: string): Promise<string> {
   if (lowerMessage.includes('relatório') || lowerMessage.includes('resumo')) {
     // Resumo mensal
     const currentMonth = new Date().toISOString().slice(0, 7) // YYYY-MM
-
+    if (!supabaseAdmin) return 'Erro: Supabase não está configurado.';
     const { data: transactions } = await supabaseAdmin
       .from('transactions')
       .select('amount, type')

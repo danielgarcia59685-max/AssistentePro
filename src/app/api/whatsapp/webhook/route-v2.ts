@@ -314,7 +314,7 @@ async function saveTransaction(data: any, userId: string) {
       console.warn('Supabase não está configurado (saveTransaction)')
       return
     }
-    const insertResult = await supabase
+    await supabase
       .from('transactions')
       .insert([{
         user_id: userId,
@@ -327,32 +327,7 @@ async function saveTransaction(data: any, userId: string) {
         supplier_name: data.supplier_name,
         client_name: data.client_name,
       }])
-
-    if (insertResult.error) {
-      if (isMissingColumnError(insertResult.error, 'category_id')) {
-        await supabase
-          .from('transactions')
-          .insert([{
-            user_id: userId,
-            amount: data.amount,
-            type: data.type,
-            category: data.category,
-            description: data.description,
-            date: data.date,
-            payment_method: data.payment_method,
-            supplier_name: data.supplier_name,
-            client_name: data.client_name,
-          }])
-      } else {
-        console.error('Erro ao salvar transação:', insertResult.error)
-      }
-    }
   } catch (error) {
     console.error('Erro ao salvar transação:', error)
   }
-}
-
-function isMissingColumnError(error: any, column: string) {
-  const message = (error?.message || '').toLowerCase()
-  return message.includes(`column \"${column}\"`) || message.includes(`column "${column}"`) || message.includes('does not exist')
 }
