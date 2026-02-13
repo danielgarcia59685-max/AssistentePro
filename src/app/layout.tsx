@@ -5,7 +5,6 @@ import Script from "next/script";
 import "./globals.css";
 // Import all available fonts for AI usage
 import "../lib/fonts";
-import { Toaster } from "@/components/ui/toaster";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -20,11 +19,6 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Assistente Financeiro",
   description: "Aplicação para gerenciar suas finanças pessoais com inteligência artificial",
-  icons: {
-    icon: "/assets/mark-assistentepro.svg",
-    shortcut: "/assets/mark-assistentepro.svg",
-    apple: "/assets/mark-assistentepro.svg",
-  },
 };
 
 export default function RootLayout({
@@ -41,7 +35,6 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
-        <Toaster />
       </body>
     </html>
   );

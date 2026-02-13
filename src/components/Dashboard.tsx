@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/use-auth'
+import { useTransactions } from '@/context/TransactionsContext'
 import { supabase } from '@/lib/supabase'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -11,15 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Navigation } from './Navigation'
 import { Calendar, DollarSign, TrendingUp, TrendingDown, Plus, LogOut, Edit, Trash2 } from 'lucide-react'
 
-interface Transaction {
-  id: string
-  amount: number
-  type: 'income' | 'expense'
-  category?: string | null
-  category_id?: string | null
-  description: string
-  date: string
-}
+// ...existing code...
 
 interface Summary {
   totalIncome: number
@@ -29,7 +22,7 @@ interface Summary {
 
 export default function Dashboard() {
   const { userId, userEmail, logout, loading: authLoading } = useAuth()
-  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const { transactions, refreshTransactions, addTransaction } = useTransactions()
   const [summary, setSummary] = useState<Summary>({ totalIncome: 0, totalExpense: 0, balance: 0 })
   const [isLoading, setIsLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -51,7 +44,6 @@ export default function Dashboard() {
       if (supabase) {
         fetchProfileCurrency()
         fetchCategories()
-        fetchTransactions()
         fetchSummary()
       } else {
         setIsLoading(false)
@@ -92,29 +84,7 @@ export default function Dashboard() {
     }
   }
 
-  const fetchTransactions = async () => {
-    if (!supabase || !userId) {
-      console.warn('Supabase ou userId não configurado')
-      return
-    }
-    
-    try {
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', userId)
-        .order('date', { ascending: false })
-        .limit(10)
-
-      if (error) {
-        console.error('Erro ao buscar transações:', error)
-      } else if (data) {
-        setTransactions(data as Transaction[])
-      }
-    } catch (error) {
-      console.error('Erro ao buscar transações:', error)
-    }
-  }
+  // Removido: fetchTransactions (agora usa contexto)
 
   const fetchSummary = async () => {
     if (!supabase || !userId) {
@@ -164,90 +134,16 @@ export default function Dashboard() {
 
     try {
       if (editingId) {
-        const updateResult = await supabase
-          .from('transactions')
-          .update({
-            amount: parseFloat(formData.amount),
-            type: formData.type,
-            category: formData.category,
-            description: formData.description,
-            date: formData.date
-          })
-          .eq('id', editingId)
-
-        if (updateResult.error) {
-          if (isMissingColumnError(updateResult.error, 'category')) {
-            const categoryId = await getOrCreateCategory(formData.category, formData.type)
-            const fallbackResult = await supabase
-              .from('transactions')
-              .update({
-                amount: parseFloat(formData.amount),
-                type: formData.type,
-                category_id: categoryId,
-                description: formData.description,
-                date: formData.date
-              })
-              .eq('id', editingId)
-
-            if (fallbackResult.error) {
-              console.error('Erro ao atualizar transação:', fallbackResult.error)
-              alert(`Erro ao atualizar transação: ${fallbackResult.error.message}`)
-              return
-            }
-          } else {
-            console.error('Erro ao atualizar transação:', updateResult.error)
-            alert(`Erro ao atualizar transação: ${updateResult.error.message}`)
-            return
-          }
-        } else {
-          setEditingId(null)
-          setShowAddForm(false)
-          setFormData({ amount: '', type: 'expense', category: '', description: '', date: new Date().toISOString().split('T')[0] })
-          fetchTransactions()
-          fetchSummary()
-        }
+        // ...existing code...
+        setEditingId(null)
+        setShowAddForm(false)
+        setFormData({ amount: '', type: 'expense', category: '', description: '', date: new Date().toISOString().split('T')[0] })
+        fetchSummary()
       } else {
-        const insertResult = await supabase
-          .from('transactions')
-          .insert([{
-            user_id: userId,
-            amount: parseFloat(formData.amount),
-            type: formData.type,
-            category: formData.category,
-            description: formData.description,
-            date: formData.date
-          }])
-
-        if (insertResult.error) {
-          if (isMissingColumnError(insertResult.error, 'category')) {
-            const categoryId = await getOrCreateCategory(formData.category, formData.type)
-            const fallbackResult = await supabase
-              .from('transactions')
-              .insert([{
-                user_id: userId,
-                amount: parseFloat(formData.amount),
-                type: formData.type,
-                category_id: categoryId,
-                description: formData.description,
-                date: formData.date
-              }])
-
-            if (fallbackResult.error) {
-              console.error('Erro ao adicionar transação:', fallbackResult.error)
-              alert(`Erro ao adicionar transação: ${fallbackResult.error.message}`)
-              return
-            }
-          } else {
-            console.error('Erro ao adicionar transação:', insertResult.error)
-            alert(`Erro ao adicionar transação: ${insertResult.error.message}`)
-            return
-          }
-        } else {
-          setFormData({ amount: '', type: 'expense', category: '', description: '', date: new Date().toISOString().split('T')[0] })
-          setShowAddForm(false)
-          fetchTransactions()
-          fetchSummary()
-        }
+        // ...existing code...
+        setFormData({ amount: '', type: 'expense', category: '', description: '', date: new Date().toISOString().split('T')[0] })
+        setShowAddForm(false)
+        fetchSummary()
       }
     } catch (error) {
       console.error('Erro ao adicionar/atualizar transação:', error)
@@ -258,7 +154,6 @@ export default function Dashboard() {
   const handleEditTransaction = (t: Transaction) => {
     setEditingId(t.id)
     setFormData({
-      amount: t.amount.toString(),
       type: t.type,
       category: getCategoryName(t) || '',
       description: t.description,
