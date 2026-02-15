@@ -1,4 +1,5 @@
 "use client";
+import { TransactionsProvider } from "@/context/TransactionsContext";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
@@ -25,10 +26,10 @@ export default function RootLayout({
       <head>
         <Script src="/lasy-bridge.js" strategy="beforeInteractive" />
       </head>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <TransactionsProvider>
+          {children}
+        </TransactionsProvider>
         <Toaster />
       </body>
     </html>
