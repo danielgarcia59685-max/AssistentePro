@@ -33,11 +33,19 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const payload = await request.json();
-    const change = payload?.entry?.[0]?.changes?.[0]?.value;
+
+    console.log('[WA webhook] payload:', JSON.stringify(payload))
+    const change = payload?.entry?.[0]?.changes?.[0]?.value
+    console.log('[WA webhook] hasMessages/hasStatuses:', {
+      hasMessages: Boolean(change?.messages?.length),
+      hasStatuses: Boolean(change?.statuses?.length),
+    })
+
     const message = change?.messages?.[0];
     const from = message?.from as string | undefined;
     const text = message?.text?.body as string | undefined;
-    const audioId = message?.audio?.id as string | undefined;
+    // ...
+
 
     if (!from || (!text && !audioId)) {
       return new Response(JSON.stringify({ success: true }), { status: 200 });
