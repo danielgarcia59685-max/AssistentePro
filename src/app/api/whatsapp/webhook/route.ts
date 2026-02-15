@@ -46,6 +46,13 @@ export async function POST(request: NextRequest) {
     const text = message?.text?.body as string | undefined;
     // ...
 
+    console.log('[WA webhook] message:', {
+  type: message?.type,
+  from: message?.from,
+  text: message?.text?.body,
+  hasAudio: Boolean(message?.audio?.id),
+})
+
 
     if (!from || (!text && !audioId)) {
       return new Response(JSON.stringify({ success: true }), { status: 200 });
@@ -264,26 +271,37 @@ async function handleQuery(message: string, userId: string): Promise<string> {
 
 async function sendMetaMessage(to: string, body: string) {
   if (!META_ACCESS_TOKEN || !META_PHONE_NUMBER_ID) {
-    console.warn('Meta WhatsApp não configurado; resposta não enviada')
+    console.warn('Meta WhatsApp não configurado', {
+      hasAccessToken: Boolean(META_ACCESS_TOKEN),
+      hasPhoneNumberId: Boolean(META_PHONE_NUMBER_ID),
+    })
     return
   }
 
-  const url = `https://graph.facebook.com/v20.0/${META_PHONE_NUMBER_ID}/messages`
+  const url = `https://graph.facebook.com/v22.0/${META_PHONE_NUMBER_ID}/messages`
 
-  await fetch(url, {
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${META_ACCESS_TOKEN}`
+      Authorization: `Bearer ${META_ACCESS_TOKEN}`,
     },
     body: JSON.stringify({
       messaging_product: 'whatsapp',
       to,
       type: 'text',
-      text: { body }
-    })
+      text: { body },
+    }),
   })
+
+  const resText = await res.text()
+  console.log('[WA send] status:', res.status, 'body:', resText)
+
+  if (!res.ok) {
+    throw new Error(`[WA send] Meta error ${res.status}: ${resText}`)
+  }
 }
+
 
 async function transcribeAudio(audioId?: string): Promise<string | null> {
   if (!audioId || !META_ACCESS_TOKEN || !openai) return null
