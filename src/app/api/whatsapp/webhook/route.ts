@@ -91,6 +91,7 @@ export async function POST(request: NextRequest) {
     }
 
     const response = await processMessage(content, user.id);
+    console.log('[WA webhook] will reply to:', from)
     await sendMetaMessage(from, response);
 
     return new Response(JSON.stringify({ success: true }), { status: 200 });
