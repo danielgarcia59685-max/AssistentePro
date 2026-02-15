@@ -77,7 +77,7 @@ export default function OnboardingPage() {
       }
 
       const userId = data.session.user.id
-      await supabase
+      const { error, data: updateData } = await supabase
         .from('users')
         .update({
           name: formData.name.trim(),
@@ -85,6 +85,12 @@ export default function OnboardingPage() {
           currency: formData.currency
         })
         .eq('id', userId)
+
+      if (error) {
+        console.error('Erro Supabase update:', error)
+        setError(error.message || 'Erro ao salvar')
+        return
+      }
 
       localStorage.setItem('onboarding_complete', '1')
       router.push('/dashboard')
