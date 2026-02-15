@@ -256,7 +256,10 @@ async function handleQuery(message: string, userId: string): Promise<string> {
 
 async function sendMetaMessage(to: string, body: string) {
   if (!META_ACCESS_TOKEN || !META_PHONE_NUMBER_ID) {
-    console.warn('Meta WhatsApp não configurado; resposta não enviada')
+    console.warn('Meta WhatsApp não configurado', {
+      hasAccessToken: Boolean(META_ACCESS_TOKEN),
+      hasPhoneNumberId: Boolean(META_PHONE_NUMBER_ID),
+    });
     return
   }
 
