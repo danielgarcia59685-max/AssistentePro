@@ -18,3 +18,9 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
 
 // Helper para verificar se o Supabase está disponível
 export const isSupabaseAvailable = () => supabase !== null
+
+// src/lib/supabase.ts
+export async function fetchTransactions() {
+  // Aqui você pode colocar um exemplo de retorno para não quebrar o app
+  return []
+}
