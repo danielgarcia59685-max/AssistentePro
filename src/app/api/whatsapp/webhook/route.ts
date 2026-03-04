@@ -1,4 +1,5 @@
-import { NextRequest } from 'next/server'
+// src/app/api/whatsapp/webhook/route.ts
+import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
 
@@ -35,16 +36,20 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const payload = await request.json()
-
     console.log('[WA webhook] payload:', JSON.stringify(payload))
 
     const change = payload?.entry?.[0]?.changes?.[0]?.value
+
+    // Ignorar updates de status (delivery/read) — responder só quando vem message
+    if (!change?.messages?.length) {
+      return NextResponse.json({ ok: true })
+    }
+
     console.log('[WA webhook] hasMessages/hasStatuses:', {
       hasMessages: Boolean(change?.messages?.length),
       hasStatuses: Boolean(change?.statuses?.length),
     })
 
-    // Ignore status updates (delivery/read) — responder só quando vem message
     const message = change?.messages?.[0]
     const from = (message?.from as string | undefined) || undefined
     const text = (message?.text?.body as string | undefined) || undefined
@@ -59,14 +64,12 @@ export async function POST(request: NextRequest) {
 
     // Nada para processar
     if (!from || (!text && !audioId)) {
-      return new Response(JSON.stringify({ success: true }), { status: 200 })
+      return NextResponse.json({ ok: true })
     }
 
     if (!supabaseAdmin) {
       console.warn('Supabase não está configurado')
-      return new Response(JSON.stringify({ error: 'Supabase not configured' }), {
-        status: 500,
-      })
+      return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 })
     }
 
     // Encontrar ou criar usuário baseado no número (você está usando "email" como chave)
@@ -85,9 +88,7 @@ export async function POST(request: NextRequest) {
 
       if (createError) {
         console.error('Erro ao criar usuário:', createError)
-        return new Response(JSON.stringify({ error: 'Erro ao criar usuário' }), {
-          status: 500,
-        })
+        return NextResponse.json({ error: 'Erro ao criar usuário' }, { status: 500 })
       }
       user = newUser
     }
@@ -96,19 +97,18 @@ export async function POST(request: NextRequest) {
 
     if (!content) {
       await sendMetaMessage(from, 'Não consegui ler sua mensagem. Tente enviar em texto.')
-      return new Response(JSON.stringify({ success: true }), { status: 200 })
+      return NextResponse.json({ ok: true })
     }
 
     const response = await processMessage(content, user.id)
 
     console.log('[WA webhook] will reply to:', from)
-    sendMetaMessage(from, response).catch(console.error)
-    return new Response(JSON.stringify({ success: true }), { status: 200 })
+    await sendMetaMessage(from, response) // await para logar/pegar erro no mesmo request
+
+    return NextResponse.json({ ok: true })
   } catch (error) {
     console.error('Erro ao processar webhook:', error)
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500,
-    })
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
@@ -151,7 +151,9 @@ Se não for uma transação, retorne { "type": "query" }.`,
 
     if (parsed.type === 'income' || parsed.type === 'expense') {
       await saveTransaction(parsed, userId)
-      return `Transação registrada: ${parsed.type === 'income' ? 'Receita' : 'Despesa'} de R$ ${Number(parsed.amount).toFixed(2)} na categoria ${parsed.category}`
+      return `Transação registrada: ${
+        parsed.type === 'income' ? 'Receita' : 'Despesa'
+      } de R$ ${Number(parsed.amount).toFixed(2)} na categoria ${parsed.category}`
     }
   } catch (error) {
     console.error('Erro ao parsear resposta da IA:', error, { aiResponse })
@@ -310,7 +312,15 @@ async function sendMetaMessage(to: string, body: string) {
     return
   }
 
+  // WhatsApp Cloud API exige só dígitos (sem +, espaços, etc.)
+  const toDigits = String(to).replace(/\D/g, '')
+
   const url = `https://graph.facebook.com/v20.0/${META_PHONE_NUMBER_ID}/messages`
+
+  // Logs de diagnóstico (não vaza token inteiro)
+  console.log('[WA send] url:', url)
+  console.log('[WA send] to:', toDigits)
+  console.log('[WA send] token preview:', META_ACCESS_TOKEN.slice(0, 8) + '...')
 
   const res = await fetch(url, {
     method: 'POST',
@@ -320,20 +330,21 @@ async function sendMetaMessage(to: string, body: string) {
     },
     body: JSON.stringify({
       messaging_product: 'whatsapp',
-      to,
+      to: toDigits,
       type: 'text',
       text: { body },
     }),
   })
 
   const text = await res.text()
+  console.log('[WA send] status:', res.status, 'body:', text)
 
   if (!res.ok) {
     console.error('Meta send message ERROR', {
       status: res.status,
       statusText: res.statusText,
       responseText: text,
-      to,
+      to: toDigits,
       phoneNumberId: META_PHONE_NUMBER_ID,
     })
   } else {
