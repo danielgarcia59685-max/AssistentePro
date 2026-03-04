@@ -279,7 +279,7 @@ async function sendMetaMessage(to: string, body: string) {
     return
   }
 
-  const url = `https://graph.facebook.com/v22.0/${META_PHONE_NUMBER_ID}/messages`
+  const url = `https://graph.facebook.com/v20.0/${META_PHONE_NUMBER_ID}/messages`
 
   const res = await fetch(url, {
     method: 'POST',
@@ -294,6 +294,17 @@ async function sendMetaMessage(to: string, body: string) {
       text: { body },
     }),
   })
+
+  const data = await res.json().catch(() => null)
+
+  if (!res.ok) {
+    console.error('[WA send] Meta error', res.status, data)
+    throw new Error(`[WA send] Meta error ${res.status}: ${JSON.stringify(data)}`)
+  }
+
+  console.log('[WA send] ok', data)
+}
+
 
   const resText = await res.text()
   console.log('[WA send] status:', res.status, 'body:', resText)
