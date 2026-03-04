@@ -281,6 +281,9 @@ async function sendMetaMessage(to: string, body: string) {
 
   const url = `https://graph.facebook.com/v20.0/${META_PHONE_NUMBER_ID}/messages`
 
+  console.log('[DEBUG WA] Enviando para (to):', to);
+console.log('[DEBUG WA] Texto (body):', body);
+
   const res = await fetch(url, {
     method: 'POST',
     headers: {
