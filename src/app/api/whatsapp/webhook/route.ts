@@ -102,8 +102,7 @@ export async function POST(request: NextRequest) {
     const response = await processMessage(content, user.id)
 
     console.log('[WA webhook] will reply to:', from)
-    await sendMetaMessage(from, response)
-
+    sendMetaMessage(from, response).catch(console.error)
     return new Response(JSON.stringify({ success: true }), { status: 200 })
   } catch (error) {
     console.error('Erro ao processar webhook:', error)
@@ -313,9 +312,6 @@ async function sendMetaMessage(to: string, body: string) {
 
   const url = `https://graph.facebook.com/v20.0/${META_PHONE_NUMBER_ID}/messages`
 
-  console.log('[DEBUG WA] Enviando para (to):', to)
-  console.log('[DEBUG WA] Texto (body):', body)
-
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -330,11 +326,18 @@ async function sendMetaMessage(to: string, body: string) {
     }),
   })
 
-  const resText = await res.text()
-  console.log('[WA send] status:', res.status, 'body:', resText)
+  const text = await res.text()
 
   if (!res.ok) {
-    throw new Error(`[WA send] Meta error ${res.status}: ${resText}`)
+    console.error('Meta send message ERROR', {
+      status: res.status,
+      statusText: res.statusText,
+      responseText: text,
+      to,
+      phoneNumberId: META_PHONE_NUMBER_ID,
+    })
+  } else {
+    console.log('Meta send message OK', text)
   }
 }
 
