@@ -13,75 +13,72 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE
 
-const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
-  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-  : null
+const supabaseAdmin =
+  SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    : null
 
 // GET handler para verificação do webhook (WhatsApp Cloud API)
 export async function GET(request: NextRequest) {
-  const { searchParams } = request.nextUrl;
-  const mode = searchParams.get('hub.mode');
-  const token = searchParams.get('hub.verify_token');
-  const challenge = searchParams.get('hub.challenge');
+  const { searchParams } = request.nextUrl
+  const mode = searchParams.get('hub.mode')
+  const token = searchParams.get('hub.verify_token')
+  const challenge = searchParams.get('hub.challenge')
 
   if (mode === 'subscribe' && token === META_VERIFY_TOKEN) {
-    return new Response(challenge, { status: 200 });
+    return new Response(challenge, { status: 200 })
   }
-  return new Response('Forbidden', { status: 403 });
+  return new Response('Forbidden', { status: 403 })
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const payload = await request.json();
-    const change = payload?.entry?.[0]?.changes?.[0]?.value;
-    const message = change?.messages?.[0];
-    const from = message?.from as string | undefined;
-    const text = message?.text?.body as string | undefined;
-    const audioId = message?.audio?.id as string | undefined;
+    const payload = await request.json()
+    const change = payload?.entry?.[0]?.changes?.[0]?.value
+    const message = change?.messages?.[0]
+    const from = message?.from as string | undefined
+    const text = message?.text?.body as string | undefined
+    const audioId = message?.audio?.id as string | undefined
 
     if (!from || (!text && !audioId)) {
-      return new Response(JSON.stringify({ success: true }), { status: 200 });
+      return new Response(JSON.stringify({ success: true }), { status: 200 })
     }
 
     if (!supabaseAdmin) {
-      console.warn('Supabase não está configurado');
-      return new Response(JSON.stringify({ error: 'Supabase not configured' }), { status: 500 });
+      console.warn('Supabase não está configurado')
+      return new Response(JSON.stringify({ error: 'Supabase not configured' }), { status: 500 })
     }
 
     // Encontrar ou criar usuário baseado no número
-    let { data: user } = await supabaseAdmin
-      .from('users')
-      .select('*')
-      .eq('email', from)
-      .single();
+    let { data: user } = await supabaseAdmin.from('users').select('*').eq('email', from).single()
 
     if (!user) {
       const { data: newUser, error: createError } = await supabaseAdmin
         .from('users')
         .insert([{ name: `User ${from}`, email: from }])
         .select()
-        .single();
+        .single()
 
       if (createError) {
-        console.error('Erro ao criar usuário:', createError);
-        return new Response(JSON.stringify({ error: 'Erro ao criar usuário' }), { status: 500 });
+        console.error('Erro ao criar usuário:', createError)
+        return new Response(JSON.stringify({ error: 'Erro ao criar usuário' }), { status: 500 })
       }
-      user = newUser;
+      user = newUser
     }
 
-    const content = text || (await transcribeAudio(audioId));
+    const content = text || (await transcribeAudio(audioId))
     if (!content) {
-      await sendMetaMessage(from, 'Não consegui ler sua mensagem. Tente enviar em texto.');
-      return new Response(JSON.stringify({ success: true }), { status: 200 });
+      await sendMetaMessage(from, 'Não consegui ler sua mensagem. Tente enviar em texto.')
+      return new Response(JSON.stringify({ success: true }), { status: 200 })
     }
 
-    const response = await processMessage(content, user.id);
-    await sendMetaMessage(from, response);
-
-    return new Response(JSON.stringify({ success: true }), { status: 200 });
+    const response = await processMessage(content, user.id)
+    // antes: await sendMetaMessage(from, response)
+sendMetaMessage(from, response).catch(console.error)
+   return new Response(JSON.stringify({ success: true }), { status: 200 })
   } catch (error) {
-    console.error('Erro ao processar webhook:', error);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
+    console.error('Erro ao processar webhook:', error)
+    return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 })
   }
 }
 // ...restante do código de helpers permanece igual...
@@ -103,13 +100,13 @@ async function processMessage(message: string, userId: string): Promise<string> 
         - "Recebi R$ 1000 de salário no PIX" -> tipo: income, valor: 1000, categoria: Salário, método: pix
         - "Paguei a conta de luz R$ 150" -> tipo: expense, valor: 150, categoria: Serviços, método: não especificado
         Retorne apenas um JSON com: { "type": "income|expense", "amount": number, "category": "string", "payment_method": "pix|card|cash|transfer", "description": "string" }
-        Se não for uma transação, retorne { "type": "query" }`
+        Se não for uma transação, retorne { "type": "query" }`,
       },
       {
         role: 'user',
-        content: message
-      }
-    ]
+        content: message,
+      },
+    ],
   })
 
   const aiResponse = completion.choices[0].message.content
@@ -140,32 +137,32 @@ async function saveTransaction(data: any, userId: string) {
 
   try {
     // Criar transação diretamente (sem tabela categories separada)
-    const insertResult = await supabaseAdmin
-      .from('transactions')
-      .insert([{
+    const insertResult = await supabaseAdmin.from('transactions').insert([
+      {
         amount: data.amount,
         type: data.type,
         category: data.category,
         description: data.description || '',
         payment_method: data.payment_method || 'cash',
         user_id: userId,
-        date: new Date().toISOString().split('T')[0]
-      }])
+        date: new Date().toISOString().split('T')[0],
+      },
+    ])
 
     if (insertResult.error) {
       if (isMissingColumnError(insertResult.error, 'category')) {
         const categoryId = await getOrCreateCategory(data.category, data.type, userId)
-        await supabaseAdmin
-          .from('transactions')
-          .insert([{
+        await supabaseAdmin.from('transactions').insert([
+          {
             amount: data.amount,
             type: data.type,
             category_id: categoryId,
             description: data.description || '',
             payment_method: data.payment_method || 'cash',
             user_id: userId,
-            date: new Date().toISOString().split('T')[0]
-          }])
+            date: new Date().toISOString().split('T')[0],
+          },
+        ])
       } else {
         console.error('Erro ao salvar transação:', insertResult.error)
       }
@@ -206,7 +203,11 @@ async function getOrCreateCategory(name: string, type: 'income' | 'expense', use
 
 function isMissingColumnError(error: any, column: string) {
   const message = (error?.message || '').toLowerCase()
-  return message.includes(`column \"${column}\"`) || message.includes(`column "${column}"`) || message.includes('does not exist')
+  return (
+    message.includes(`column \"${column}\"`) ||
+    message.includes(`column "${column}"`) ||
+    message.includes('does not exist')
+  )
 }
 
 async function handleQuery(message: string, userId: string): Promise<string> {
@@ -214,7 +215,7 @@ async function handleQuery(message: string, userId: string): Promise<string> {
 
   if (lowerMessage.includes('saldo') || lowerMessage.includes('quanto tenho')) {
     // Calcular saldo
-    if (!supabaseAdmin) return 'Erro: Supabase não está configurado.';
+    if (!supabaseAdmin) return 'Erro: Supabase não está configurado.'
     const { data: incomes } = await supabaseAdmin
       .from('transactions')
       .select('amount')
@@ -237,7 +238,7 @@ async function handleQuery(message: string, userId: string): Promise<string> {
   if (lowerMessage.includes('relatório') || lowerMessage.includes('resumo')) {
     // Resumo mensal
     const currentMonth = new Date().toISOString().slice(0, 7) // YYYY-MM
-    if (!supabaseAdmin) return 'Erro: Supabase não está configurado.';
+    if (!supabaseAdmin) return 'Erro: Supabase não está configurado.'
     const { data: transactions } = await supabaseAdmin
       .from('transactions')
       .select('amount, type')
@@ -245,8 +246,14 @@ async function handleQuery(message: string, userId: string): Promise<string> {
       .gte('date', `${currentMonth}-01`)
       .lt('date', `${currentMonth}-32`)
 
-    const income = transactions?.filter(t => t.type === 'income').reduce((sum, t) => sum + parseFloat(t.amount), 0) || 0
-    const expense = transactions?.filter(t => t.type === 'expense').reduce((sum, t) => sum + parseFloat(t.amount), 0) || 0
+    const income =
+      transactions
+        ?.filter((t) => t.type === 'income')
+        .reduce((sum, t) => sum + parseFloat(t.amount), 0) || 0
+    const expense =
+      transactions
+        ?.filter((t) => t.type === 'expense')
+        .reduce((sum, t) => sum + parseFloat(t.amount), 0) || 0
 
     return `📊 Resumo do mês: Receitas R$ ${income.toFixed(2)}, Despesas R$ ${expense.toFixed(2)}, Lucro R$ ${(income - expense).toFixed(2)}`
   }
@@ -259,25 +266,39 @@ async function sendMetaMessage(to: string, body: string) {
     console.warn('Meta WhatsApp não configurado', {
       hasAccessToken: Boolean(META_ACCESS_TOKEN),
       hasPhoneNumberId: Boolean(META_PHONE_NUMBER_ID),
-    });
+    })
     return
   }
 
   const url = `https://graph.facebook.com/v20.0/${META_PHONE_NUMBER_ID}/messages`
 
-  await fetch(url, {
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${META_ACCESS_TOKEN}`
+      Authorization: `Bearer ${META_ACCESS_TOKEN}`,
     },
     body: JSON.stringify({
       messaging_product: 'whatsapp',
       to,
       type: 'text',
-      text: { body }
-    })
+      text: { body },
+    }),
   })
+
+  const text = await res.text()
+
+  if (!res.ok) {
+    console.error('Meta send message ERROR', {
+      status: res.status,
+      statusText: res.statusText,
+      responseText: text,
+      to,
+      phoneNumberId: META_PHONE_NUMBER_ID,
+    })
+  } else {
+    console.log('Meta send message OK', text)
+  }
 }
 
 async function transcribeAudio(audioId?: string): Promise<string | null> {
@@ -285,7 +306,7 @@ async function transcribeAudio(audioId?: string): Promise<string | null> {
 
   // 1) Buscar URL da mídia
   const mediaRes = await fetch(`https://graph.facebook.com/v20.0/${audioId}`, {
-    headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` }
+    headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` },
   })
   if (!mediaRes.ok) return null
   const mediaJson = await mediaRes.json()
@@ -294,7 +315,7 @@ async function transcribeAudio(audioId?: string): Promise<string | null> {
 
   // 2) Baixar o áudio
   const audioRes = await fetch(mediaUrl, {
-    headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` }
+    headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` },
   })
   if (!audioRes.ok) return null
   const buffer = Buffer.from(await audioRes.arrayBuffer())
@@ -303,7 +324,7 @@ async function transcribeAudio(audioId?: string): Promise<string | null> {
   const file = new File([buffer], 'audio.ogg', { type: 'audio/ogg' })
   const transcription = await openai.audio.transcriptions.create({
     file,
-    model: 'whisper-1'
+    model: 'whisper-1',
   })
 
   return transcription.text || null

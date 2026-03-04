@@ -1,13 +1,19 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useAuth } from '@/hooks/use-auth'
+import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Navigation } from '@/components/Navigation'
 import { Plus, Trash2, TrendingUp, Target } from 'lucide-react'
@@ -71,9 +77,8 @@ export default function GoalsPage() {
     if (!supabase || !userId) return
 
     try {
-      await supabase
-        .from('financial_goals')
-        .insert([{
+      await supabase.from('financial_goals').insert([
+        {
           user_id: userId,
           name: formData.name,
           target_amount: parseFloat(formData.target_amount),
@@ -81,7 +86,8 @@ export default function GoalsPage() {
           category: formData.category,
           description: formData.description,
           current_amount: 0,
-        }])
+        },
+      ])
 
       setFormData({
         name: '',
@@ -101,10 +107,7 @@ export default function GoalsPage() {
     if (!supabase) return
 
     try {
-      await supabase
-        .from('financial_goals')
-        .delete()
-        .eq('id', id)
+      await supabase.from('financial_goals').delete().eq('id', id)
 
       fetchGoals()
     } catch (error) {
@@ -116,10 +119,7 @@ export default function GoalsPage() {
     if (!supabase) return
 
     try {
-      await supabase
-        .from('financial_goals')
-        .update({ current_amount: newAmount })
-        .eq('id', id)
+      await supabase.from('financial_goals').update({ current_amount: newAmount }).eq('id', id)
 
       fetchGoals()
     } catch (error) {
@@ -212,14 +212,19 @@ export default function GoalsPage() {
                         step="0.01"
                         placeholder="0.00"
                         value={formData.target_amount}
-                        onChange={(e) => setFormData({ ...formData, target_amount: e.target.value })}
+                        onChange={(e) =>
+                          setFormData({ ...formData, target_amount: e.target.value })
+                        }
                         required
                       />
                     </div>
 
                     <div className="space-y-2">
                       <Label htmlFor="category">Categoria</Label>
-                      <Select value={formData.category} onValueChange={(value) => setFormData({ ...formData, category: value })}>
+                      <Select
+                        value={formData.category}
+                        onValueChange={(value) => setFormData({ ...formData, category: value })}
+                      >
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
@@ -258,11 +263,7 @@ export default function GoalsPage() {
                     <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700">
                       Criar Meta
                     </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setShowAddForm(false)}
-                    >
+                    <Button type="button" variant="outline" onClick={() => setShowAddForm(false)}>
                       Cancelar
                     </Button>
                   </div>
@@ -287,12 +288,17 @@ export default function GoalsPage() {
                 const isOver = isOverdue(goal.deadline)
 
                 return (
-                  <Card key={goal.id} className={`bg-white shadow-lg hover:shadow-xl transition-shadow ${isOver ? 'border-2 border-red-300' : ''}`}>
+                  <Card
+                    key={goal.id}
+                    className={`bg-white shadow-lg hover:shadow-xl transition-shadow ${isOver ? 'border-2 border-red-300' : ''}`}
+                  >
                     <CardHeader>
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
                           <CardTitle className="text-lg">{goal.name}</CardTitle>
-                          <CardDescription className="mt-1">{getCategoryLabel(goal.category)}</CardDescription>
+                          <CardDescription className="mt-1">
+                            {getCategoryLabel(goal.category)}
+                          </CardDescription>
                         </div>
                         <Button
                           size="sm"
@@ -329,7 +335,8 @@ export default function GoalsPage() {
                       {/* Deadline */}
                       <div className="flex items-center gap-2 text-sm">
                         <span className={isOver ? 'text-red-600 font-semibold' : 'text-gray-600'}>
-                          {isOver ? '⚠️ Vencida' : '📅'} {new Date(goal.deadline).toLocaleDateString('pt-BR')}
+                          {isOver ? '⚠️ Vencida' : '📅'}{' '}
+                          {new Date(goal.deadline).toLocaleDateString('pt-BR')}
                         </span>
                       </div>
 
@@ -354,7 +361,9 @@ export default function GoalsPage() {
                           size="sm"
                           className="bg-green-600 hover:bg-green-700"
                           onClick={(e) => {
-                            const input = (e.currentTarget.parentElement?.querySelector('input') as HTMLInputElement)
+                            const input = e.currentTarget.parentElement?.querySelector(
+                              'input',
+                            ) as HTMLInputElement
                             if (input) {
                               const value = parseFloat(input.value)
                               if (!isNaN(value) && value > 0) {
@@ -382,7 +391,9 @@ export default function GoalsPage() {
                   <CardTitle className="text-sm">Total de Metas</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-3xl font-bold">R$ {goals.reduce((sum, g) => sum + g.target_amount, 0).toFixed(2)}</div>
+                  <div className="text-3xl font-bold">
+                    R$ {goals.reduce((sum, g) => sum + g.target_amount, 0).toFixed(2)}
+                  </div>
                   <p className="text-xs text-blue-100 mt-1">{goals.length} objetivo(s)</p>
                 </CardContent>
               </Card>
@@ -396,7 +407,7 @@ export default function GoalsPage() {
                     {Math.round(
                       (goals.reduce((sum, g) => sum + g.current_amount, 0) /
                         goals.reduce((sum, g) => sum + g.target_amount, 0)) *
-                        100
+                        100,
                     )}
                     %
                   </div>

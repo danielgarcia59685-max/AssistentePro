@@ -1,13 +1,19 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useAuth } from '@/hooks/use-auth'
+import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Navigation } from '@/components/Navigation'
 import { Plus, Trash2, Check, AlertCircle, LogOut } from 'lucide-react'
@@ -71,9 +77,8 @@ export default function RemindersPage() {
     if (!supabase || !userId) return
 
     try {
-      await supabase
-        .from('reminders')
-        .insert([{
+      await supabase.from('reminders').insert([
+        {
           user_id: userId,
           title: formData.title,
           description: formData.description,
@@ -82,7 +87,8 @@ export default function RemindersPage() {
           due_time: formData.due_time,
           status: 'pending',
           send_notification: true,
-        }])
+        },
+      ])
 
       setFormData({
         title: '',
@@ -102,10 +108,7 @@ export default function RemindersPage() {
     if (!supabase) return
 
     try {
-      await supabase
-        .from('reminders')
-        .update({ status: 'completed' })
-        .eq('id', id)
+      await supabase.from('reminders').update({ status: 'completed' }).eq('id', id)
 
       fetchReminders()
     } catch (error) {
@@ -117,10 +120,7 @@ export default function RemindersPage() {
     if (!supabase) return
 
     try {
-      await supabase
-        .from('reminders')
-        .delete()
-        .eq('id', id)
+      await supabase.from('reminders').delete().eq('id', id)
 
       fetchReminders()
     } catch (error) {
@@ -223,7 +223,12 @@ export default function RemindersPage() {
 
                     <div className="space-y-2">
                       <Label htmlFor="type">Tipo</Label>
-                      <Select value={formData.reminder_type} onValueChange={(value) => setFormData({ ...formData, reminder_type: value })}>
+                      <Select
+                        value={formData.reminder_type}
+                        onValueChange={(value) =>
+                          setFormData({ ...formData, reminder_type: value })
+                        }
+                      >
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
@@ -272,11 +277,7 @@ export default function RemindersPage() {
                     <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700">
                       Salvar
                     </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setShowAddForm(false)}
-                    >
+                    <Button type="button" variant="outline" onClick={() => setShowAddForm(false)}>
                       Cancelar
                     </Button>
                   </div>
@@ -295,7 +296,10 @@ export default function RemindersPage() {
               </Card>
             ) : (
               reminders.map((reminder) => (
-                <Card key={reminder.id} className="bg-white shadow-lg hover:shadow-xl transition-shadow">
+                <Card
+                  key={reminder.id}
+                  className="bg-white shadow-lg hover:shadow-xl transition-shadow"
+                >
                   <CardContent className="flex flex-col sm:flex-row sm:items-center justify-between p-6 gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
@@ -306,11 +310,18 @@ export default function RemindersPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-3 mt-3">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(reminder.status)}`}>
-                          {reminder.status === 'completed' ? '✓ Concluído' : reminder.status === 'sent' ? 'Enviado' : 'Pendente'}
+                        <span
+                          className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(reminder.status)}`}
+                        >
+                          {reminder.status === 'completed'
+                            ? '✓ Concluído'
+                            : reminder.status === 'sent'
+                              ? 'Enviado'
+                              : 'Pendente'}
                         </span>
                         <span className="text-sm text-gray-500">
-                          {new Date(reminder.due_date).toLocaleDateString('pt-BR')} {reminder.due_time && `às ${reminder.due_time}`}
+                          {new Date(reminder.due_date).toLocaleDateString('pt-BR')}{' '}
+                          {reminder.due_time && `às ${reminder.due_time}`}
                         </span>
                       </div>
                     </div>

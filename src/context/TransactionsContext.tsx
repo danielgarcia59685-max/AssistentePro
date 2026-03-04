@@ -1,83 +1,145 @@
 'use client'
 
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { supabase } from '../lib/supabase'
-import type { Transaction } from '../types/transaction'
-import { useAuth } from '../hooks/use-auth'
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/hooks/useAuth';
 
-type TransactionsContextValue = {
-  transactions: Transaction[]
-  refreshTransactions: () => Promise<void>
-  addTransaction: (t: Omit<Transaction, 'id'>) => Promise<void>
+export interface Transaction {
+  id: string
+  user_id: string
+  amount: number
+  description: string | null
+  type: 'income' | 'expense'
+  category: string
+  date: string
+  created_at: string
 }
 
-const TransactionsContext = createContext<TransactionsContextValue | null>(null)
+interface TransactionsContextType {
+  transactions: Transaction[]
+  isLoading: boolean
+  isConfigured: boolean
+  addTransaction: (transaction: Omit<Transaction, 'id' | 'user_id' | 'created_at'>) => Promise<void>
+  updateTransaction: (id: string, updates: Partial<Transaction>) => Promise<void>
+  deleteTransaction: (id: string) => Promise<void>
+  refreshTransactions: () => Promise<void>
+}
 
-export function TransactionsProvider({ children }: { children: React.ReactNode }) {
-  const { userId } = useAuth() as { userId: string | null }
+const TransactionsContext = createContext<TransactionsContextType | undefined>(undefined)
 
+export function TransactionsProvider({ children }: { children: ReactNode }) {
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [isConfigured, setIsConfigured] = useState(false)
+
+  // Verifica se o Supabase está configurado
+  useEffect(() => {
+    setIsConfigured(!!supabase)
+  }, [])
 
   const refreshTransactions = async () => {
-    if (!supabase || !userId) {
+    if (!supabase) return
+    
+    setIsLoading(true)
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      if (!sessionData.session) {
+        setTransactions([])
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', sessionData.session.user.id)
+        .order('date', { ascending: false })
+
+      if (error) throw error
+      setTransactions(data || [])
+    } catch (error) {
+      console.error('Erro ao carregar transações:', error)
       setTransactions([])
-      return
+    } finally {
+      setIsLoading(false)
     }
+  }
+
+  const addTransaction = async (transaction: Omit<Transaction, 'id' | 'user_id' | 'created_at'>) => {
+    if (!supabase) return
+
+    const { data: sessionData } = await supabase.auth.getSession()
+    if (!sessionData.session) throw new Error('Usuário não autenticado')
 
     const { data, error } = await supabase
       .from('transactions')
-      .select('id, type, amount, category, date, description')
-      .eq('user_id', userId)
-      .order('date', { ascending: false })
-      .limit(10)
-
-    if (error) {
-      console.error('Erro ao buscar transações:', error)
-      setTransactions([])
-      return
-    }
-
-    setTransactions((data ?? []) as Transaction[])
-  }
-
-  const addTransaction = async (t: Omit<Transaction, 'id'>) => {
-    if (!supabase || !userId) throw new Error('Supabase não configurado ou usuário não autenticado')
-
-    const { error } = await supabase.from('transactions').insert([
-      {
-        user_id: userId,
-        type: t.type,
-        amount: t.amount,
-        category: t.category ?? null,
-        description: t.description ?? null,
-        date: t.date,
-      },
-    ])
+      .insert([
+        {
+          ...transaction,
+          user_id: sessionData.session.user.id,
+        },
+      ])
+      .select()
+      .single()
 
     if (error) throw error
-
-    await refreshTransactions()
+    if (data) {
+      setTransactions((prev) => [data, ...prev])
+    }
   }
 
+  const updateTransaction = async (id: string, updates: Partial<Transaction>) => {
+    if (!supabase) return
+
+    const { data, error } = await supabase
+      .from('transactions')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (error) throw error
+    if (data) {
+      setTransactions((prev) => prev.map((t) => (t.id === id ? data : t)))
+    }
+  }
+
+  const deleteTransaction = async (id: string) => {
+    if (!supabase) return
+
+    const { error } = await supabase.from('transactions').delete().eq('id', id)
+
+    if (error) throw error
+    setTransactions((prev) => prev.filter((t) => t.id !== id))
+  }
+
+  // Carrega transações quando o contexto é montado
   useEffect(() => {
-    refreshTransactions()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId])
+    if (isConfigured) {
+      refreshTransactions()
+    }
+  }, [isConfigured])
 
-  const value = useMemo(
-    () => ({
-      transactions,
-      refreshTransactions,
-      addTransaction,
-    }),
-    [transactions]
+  return (
+    <TransactionsContext.Provider
+      value={{
+        transactions,
+        isLoading,
+        isConfigured,
+        addTransaction,
+        updateTransaction,
+        deleteTransaction,
+        refreshTransactions,
+      }}
+    >
+      {children}
+    </TransactionsContext.Provider>
   )
-
-  return <TransactionsContext.Provider value={value}>{children}</TransactionsContext.Provider>
 }
 
 export function useTransactions() {
-  const ctx = useContext(TransactionsContext)
-  if (!ctx) throw new Error('useTransactions deve ser usado dentro de <TransactionsProvider>')
-  return ctx
+  const context = useContext(TransactionsContext)
+  if (context === undefined) {
+    throw new Error('useTransactions deve ser usado dentro de TransactionsProvider')
+  }
+  return context
 }

@@ -58,7 +58,9 @@ export default function RegisterPage() {
       const userId = signUpData?.user?.id
       if (userId) {
         const fallbackName = normalizedEmail.split('@')[0] || 'Usuário'
-        await supabase.from('users').upsert([{ id: userId, email: normalizedEmail, name: fallbackName }])
+        await supabase
+          .from('users')
+          .upsert([{ id: userId, email: normalizedEmail, name: fallbackName }])
       }
 
       setSuccess('Conta criada com sucesso! Verifique seu email se necessário. Redirecionando...')
@@ -86,7 +88,11 @@ export default function RegisterPage() {
           {/* Logo */}
           <div className="flex justify-center mb-8">
             <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-lg shadow-amber-600/20">
-              <img src="/assets/mark-assistentepro.svg" alt="AssistentePro" className="w-full h-full object-cover" />
+              <img
+                src="/assets/mark-assistentepro.svg"
+                alt="AssistentePro"
+                className="w-full h-full object-cover"
+              />
             </div>
           </div>
 
@@ -114,7 +120,9 @@ export default function RegisterPage() {
 
             {/* Email Field */}
             <div className="space-y-3">
-              <Label htmlFor="email" className="text-gray-300 font-medium">Email</Label>
+              <Label htmlFor="email" className="text-gray-300 font-medium">
+                Email
+              </Label>
               <Input
                 id="email"
                 type="email"
@@ -128,7 +136,9 @@ export default function RegisterPage() {
 
             {/* Password Field */}
             <div className="space-y-3">
-              <Label htmlFor="password" className="text-gray-300 font-medium">Senha</Label>
+              <Label htmlFor="password" className="text-gray-300 font-medium">
+                Senha
+              </Label>
               <Input
                 id="password"
                 type="password"
@@ -143,7 +153,9 @@ export default function RegisterPage() {
 
             {/* Confirm Password Field */}
             <div className="space-y-3">
-              <Label htmlFor="confirmPassword" className="text-gray-300 font-medium">Confirme a Senha</Label>
+              <Label htmlFor="confirmPassword" className="text-gray-300 font-medium">
+                Confirme a Senha
+              </Label>
               <Input
                 id="confirmPassword"
                 type="password"
@@ -157,8 +169,8 @@ export default function RegisterPage() {
             </div>
 
             {/* Register Button */}
-            <Button 
-              type="submit" 
+            <Button
+              type="submit"
               disabled={loading}
               className="w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 rounded-xl transition-all duration-200 flex items-center justify-center gap-2 mt-8"
             >
@@ -170,7 +182,10 @@ export default function RegisterPage() {
             <div className="text-center pt-4 border-t border-gray-800">
               <p className="text-gray-400 text-sm">
                 Já tem conta?{' '}
-                <a href="/login" className="text-amber-600 hover:text-amber-500 font-semibold transition-colors">
+                <a
+                  href="/login"
+                  className="text-amber-600 hover:text-amber-500 font-semibold transition-colors"
+                >
                   Faça login
                 </a>
               </p>

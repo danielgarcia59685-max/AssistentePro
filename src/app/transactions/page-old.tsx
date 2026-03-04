@@ -4,7 +4,14 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Edit, Trash2 } from 'lucide-react'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { supabase } from '@/lib/supabase'
 
 interface Transaction {
@@ -29,7 +36,7 @@ export default function TransactionsPage() {
       console.warn('Supabase não está configurado')
       return
     }
-    
+
     try {
       const { data, error } = await supabase
         .from('transactions')
@@ -64,7 +71,10 @@ export default function TransactionsPage() {
       const newAmount = parseFloat(newAmountStr)
       if (isNaN(newAmount)) return alert('Valor inválido')
       const newDesc = prompt('Nova descrição', t.description) || t.description
-      await supabase.from('transactions').update({ amount: newAmount, description: newDesc }).eq('id', t.id)
+      await supabase
+        .from('transactions')
+        .update({ amount: newAmount, description: newDesc })
+        .eq('id', t.id)
       fetchTransactions()
     } catch (err) {
       console.error('Erro ao editar transação:', err)
@@ -100,7 +110,9 @@ export default function TransactionsPage() {
                   <TableCell>{transaction.description}</TableCell>
                   <TableCell>{transaction.category}</TableCell>
                   <TableCell>{transaction.payment_method}</TableCell>
-                  <TableCell className={transaction.type === 'income' ? 'text-green-600' : 'text-red-600'}>
+                  <TableCell
+                    className={transaction.type === 'income' ? 'text-green-600' : 'text-red-600'}
+                  >
                     {transaction.type === 'income' ? '+' : '-'}R$ {transaction.amount.toFixed(2)}
                   </TableCell>
                   <TableCell>
@@ -108,7 +120,12 @@ export default function TransactionsPage() {
                       <Button size="sm" variant="outline" onClick={() => handleEdit(transaction)}>
                         <Edit className="w-4 h-4" />
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => handleDelete(transaction.id)} className="text-red-600 hover:text-red-700">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleDelete(transaction.id)}
+                        className="text-red-600 hover:text-red-700"
+                      >
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>

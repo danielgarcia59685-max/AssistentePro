@@ -5,7 +5,13 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
 
 export default function OnboardingPage() {
@@ -15,7 +21,7 @@ export default function OnboardingPage() {
   const [formData, setFormData] = useState({
     name: '',
     timezone: 'America/Sao_Paulo',
-    currency: 'BRL'
+    currency: 'BRL',
   })
   const [error, setError] = useState('')
 
@@ -44,7 +50,7 @@ export default function OnboardingPage() {
         setFormData({
           name: profile.name || '',
           timezone: profile.timezone || 'America/Sao_Paulo',
-          currency: profile.currency || 'BRL'
+          currency: profile.currency || 'BRL',
         })
       }
 
@@ -82,7 +88,7 @@ export default function OnboardingPage() {
         .update({
           name: formData.name.trim(),
           timezone: formData.timezone,
-          currency: formData.currency
+          currency: formData.currency,
         })
         .eq('id', userId)
 
@@ -129,7 +135,10 @@ export default function OnboardingPage() {
 
           <div className="space-y-2">
             <Label className="text-gray-300">Fuso horário</Label>
-            <Select value={formData.timezone} onValueChange={(value) => setFormData({ ...formData, timezone: value })}>
+            <Select
+              value={formData.timezone}
+              onValueChange={(value) => setFormData({ ...formData, timezone: value })}
+            >
               <SelectTrigger className="bg-gray-800 border-gray-700 text-white rounded-xl">
                 <SelectValue />
               </SelectTrigger>
@@ -143,7 +152,10 @@ export default function OnboardingPage() {
 
           <div className="space-y-2">
             <Label className="text-gray-300">Moeda</Label>
-            <Select value={formData.currency} onValueChange={(value) => setFormData({ ...formData, currency: value })}>
+            <Select
+              value={formData.currency}
+              onValueChange={(value) => setFormData({ ...formData, currency: value })}
+            >
               <SelectTrigger className="bg-gray-800 border-gray-700 text-white rounded-xl">
                 <SelectValue />
               </SelectTrigger>
