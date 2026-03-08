@@ -144,6 +144,8 @@ HORA: ${formatTimeBR(new Date())}
 DESCRIÇÃO: ${(parsedTransaction.description || 'SEM DESCRIÇÃO').toUpperCase()}`
   }
 
+  return 'TESTE NOVO WEBHOOK 123'
+
   return `Bem-vindo ao seu Assistente Financeiro.
 
 Você pode me mandar:
