@@ -1,14 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-
-const openai = process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  : null
 
 const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN
 const META_PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID
+const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || ''
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE
@@ -18,7 +15,6 @@ const supabaseAdmin =
     ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     : null
 
-// GET handler para verificação do webhook (WhatsApp Cloud API)
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
   const mode = searchParams.get('hub.mode')
@@ -28,6 +24,7 @@ export async function GET(request: NextRequest) {
   if (mode === 'subscribe' && token === META_VERIFY_TOKEN) {
     return new Response(challenge, { status: 200 })
   }
+
   return new Response('Forbidden', { status: 403 })
 }
 
@@ -36,229 +33,398 @@ export async function POST(request: NextRequest) {
     const payload = await request.json()
     const change = payload?.entry?.[0]?.changes?.[0]?.value
     const message = change?.messages?.[0]
+
     const from = message?.from as string | undefined
-    const text = message?.text?.body as string | undefined
+    const text = (message?.text?.body as string | undefined)?.trim()
     const audioId = message?.audio?.id as string | undefined
 
     if (!from || (!text && !audioId)) {
-      return new Response(JSON.stringify({ success: true }), { status: 200 })
+      return Response.json({ success: true }, { status: 200 })
     }
 
     if (!supabaseAdmin) {
       console.warn('Supabase não está configurado')
-      return new Response(JSON.stringify({ error: 'Supabase not configured' }), { status: 500 })
+      return Response.json({ error: 'Supabase not configured' }, { status: 500 })
     }
 
-    // Encontrar ou criar usuário baseado no número
-    let { data: user } = await supabaseAdmin.from('users').select('*').eq('email', from).single()
+    let { data: user, error: userError } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .eq('whatsapp_number', from)
+      .maybeSingle()
+
+    if (userError) {
+      console.error('Erro ao buscar usuário:', userError)
+      return Response.json({ error: 'Erro ao buscar usuário' }, { status: 500 })
+    }
 
     if (!user) {
       const { data: newUser, error: createError } = await supabaseAdmin
         .from('users')
-        .insert([{ name: `User ${from}`, email: from }])
+        .insert([
+          {
+            name: `User ${from}`,
+            whatsapp_number: from,
+            currency: 'BRL',
+            is_active: true,
+          },
+        ])
         .select()
         .single()
 
       if (createError) {
         console.error('Erro ao criar usuário:', createError)
-        return new Response(JSON.stringify({ error: 'Erro ao criar usuário' }), { status: 500 })
+        return Response.json({ error: 'Erro ao criar usuário' }, { status: 500 })
       }
+
       user = newUser
     }
 
-    const content = text || (await transcribeAudio(audioId))
+    if (audioId) {
+      await sendMetaMessage(
+        from,
+        'Recebi seu áudio, mas a transcrição ainda não está ativada. Por enquanto, envie em texto.'
+      )
+      return Response.json({ success: true }, { status: 200 })
+    }
+
+    const content = text?.trim()
     if (!content) {
       await sendMetaMessage(from, 'Não consegui ler sua mensagem. Tente enviar em texto.')
-      return new Response(JSON.stringify({ success: true }), { status: 200 })
+      return Response.json({ success: true }, { status: 200 })
     }
 
     const response = await processMessage(content, user.id)
-    // antes: await sendMetaMessage(from, response)
-sendMetaMessage(from, response).catch(console.error)
-   return new Response(JSON.stringify({ success: true }), { status: 200 })
+    sendMetaMessage(from, response).catch(console.error)
+
+    return Response.json({ success: true }, { status: 200 })
   } catch (error) {
     console.error('Erro ao processar webhook:', error)
-    return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 })
+    return Response.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
-// ...restante do código de helpers permanece igual...
 
 async function processMessage(message: string, userId: string): Promise<string> {
-  if (!openai) {
-    return 'Integração com IA não configurada. Defina OPENAI_API_KEY para habilitar.'
+  const lowerMessage = normalizeText(message)
+
+  if (isWebsiteLinkQuery(lowerMessage)) {
+    return SITE_URL
+      ? `🌐 ACESSE SEU PAINEL COMPLETO:\n${SITE_URL}`
+      : 'O link do site ainda não foi configurado.'
   }
-  // Usar OpenAI para entender e processar a mensagem
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4',
-    messages: [
-      {
-        role: 'system',
-        content: `Você é um assistente financeiro. Analise a mensagem do usuário e extraia informações de transações financeiras.
-        Responda sempre em português brasileiro e seja conciso.
-        Formatos esperados:
-        - "Gastei R$ 50 no mercado com cartão" -> tipo: expense, valor: 50, categoria: Alimentação, método: card
-        - "Recebi R$ 1000 de salário no PIX" -> tipo: income, valor: 1000, categoria: Salário, método: pix
-        - "Paguei a conta de luz R$ 150" -> tipo: expense, valor: 150, categoria: Serviços, método: não especificado
-        Retorne apenas um JSON com: { "type": "income|expense", "amount": number, "category": "string", "payment_method": "pix|card|cash|transfer", "description": "string" }
-        Se não for uma transação, retorne { "type": "query" }`,
-      },
-      {
-        role: 'user',
-        content: message,
-      },
-    ],
-  })
 
-  const aiResponse = completion.choices[0].message.content
+  if (isBalanceQuery(lowerMessage)) {
+    return await handleBalance(userId)
+  }
 
-  try {
-    const parsed = JSON.parse(aiResponse || '{}')
+  if (isStatementQuery(lowerMessage)) {
+    return await handleStatement(userId)
+  }
 
-    if (parsed.type === 'query') {
-      // Responder a consultas
-      return await handleQuery(message, userId)
-    } else if (parsed.type === 'income' || parsed.type === 'expense') {
-      // Salvar transação
-      await saveTransaction(parsed, userId)
-      return `✅ Transação registrada: ${parsed.type === 'income' ? 'Receita' : 'Despesa'} de R$ ${parsed.amount} na categoria ${parsed.category}`
+  if (isSummaryQuery(lowerMessage)) {
+    return await handleSummary(userId)
+  }
+
+  const parsedTransaction = parseTransaction(message)
+  if (parsedTransaction) {
+    const saveResult = await saveTransaction(parsedTransaction, userId)
+
+    if (!saveResult.ok) {
+      return `Não consegui salvar sua transação. Motivo: ${saveResult.error}`
     }
-  } catch (error) {
-    console.error('Erro ao parsear resposta da IA:', error)
+
+    const label = parsedTransaction.type === 'income' ? 'RECEITA CADASTRADA COM SUCESSO!!' : 'GASTO REGISTRADO!!'
+
+    return `${label}
+CATEGORIA: ${parsedTransaction.category.toUpperCase()}
+VALOR: R$ ${formatCurrency(parsedTransaction.amount)}
+F.PAGAMENTO: ${parsedTransaction.payment_method.toUpperCase()}
+DATA: ${formatDateBR(new Date())}
+HORA: ${formatTimeBR(new Date())}
+DESCRIÇÃO: ${(parsedTransaction.description || 'SEM DESCRIÇÃO').toUpperCase()}`
   }
 
-  return 'Mensagem processada. Para registrar transações, diga algo como "Gastei R$ 50 no mercado".'
+  return `Bem-vindo ao seu Assistente Financeiro.
+
+Você pode me mandar:
+- "saldo"
+- "extrato"
+- "resumo"
+- "site"
+
+E também registrar em texto:
+- "gastei 50 no mercado no pix"
+- "recebi 100 no pix"`
 }
 
-async function saveTransaction(data: any, userId: string) {
+function parseTransaction(message: string) {
+  const original = message.trim()
+  const text = normalizeText(original)
+
+  let type: 'income' | 'expense' | null = null
+
+  if (/\b(gastei|paguei|comprei|saiu)\b/.test(text)) {
+    type = 'expense'
+  } else if (/\b(recebi|ganhei|vendi|entrou)\b/.test(text)) {
+    type = 'income'
+  }
+
+  if (!type) return null
+
+  const amountMatch = text.match(/(\d+[.,]?\d{0,2})/)
+  if (!amountMatch) return null
+
+  const amount = Number(amountMatch[1].replace(',', '.'))
+  if (!amount || Number.isNaN(amount)) return null
+
+  const payment_method = extractPaymentMethod(text)
+  const category = extractCategory(text, type)
+
+  let description = text
+    .replace(/\b(gastei|paguei|comprei|saiu|recebi|ganhei|vendi|entrou)\b/g, '')
+    .replace(/\br\$?\s*\d+[.,]?\d{0,2}\b/g, '')
+    .replace(/\b(\d+[.,]?\d{0,2})\b/g, '')
+    .replace(/\b(no|na|com|em|pra|para)\s+(pix|dinheiro|debito|débito|credito|crédito|boleto)\b/g, '')
+    .replace(/\b(pix|dinheiro|debito|débito|credito|crédito|boleto)\b/g, '')
+    .trim()
+
+  if (!description) {
+    description = category
+  }
+
+  return {
+    type,
+    amount,
+    category,
+    payment_method,
+    description,
+  }
+}
+
+function extractPaymentMethod(text: string) {
+  if (text.includes('pix')) return 'Pix'
+  if (text.includes('boleto')) return 'Boleto'
+  if (text.includes('debito') || text.includes('débito')) return 'Débito'
+  if (text.includes('credito') || text.includes('crédito') || text.includes('cartao') || text.includes('cartão')) {
+    return 'Crédito'
+  }
+  if (text.includes('dinheiro')) return 'Dinheiro'
+  return 'Pix'
+}
+
+function extractCategory(text: string, type: 'income' | 'expense') {
+  if (type === 'income') {
+    if (text.includes('salario') || text.includes('salário')) return 'Salário'
+    if (text.includes('cliente')) return 'Receita'
+    if (text.includes('venda')) return 'Vendas'
+    return 'Receita'
+  }
+
+  if (text.includes('mercado') || text.includes('supermercado') || text.includes('janta') || text.includes('almoco') || text.includes('almoço') || text.includes('lanche')) {
+    return 'Alimentação'
+  }
+
+  if (text.includes('uber') || text.includes('gasolina') || text.includes('combustivel') || text.includes('combustível') || text.includes('onibus') || text.includes('ônibus')) {
+    return 'Transporte'
+  }
+
+  if (text.includes('aluguel') || text.includes('condominio') || text.includes('condomínio')) {
+    return 'Moradia'
+  }
+
+  if (text.includes('farmacia') || text.includes('farmácia') || text.includes('medico') || text.includes('médico') || text.includes('consulta')) {
+    return 'Saúde'
+  }
+
+  if (text.includes('internet') || text.includes('agua') || text.includes('água') || text.includes('luz') || text.includes('telefone')) {
+    return 'Contas e Serviços'
+  }
+
+  return 'Outros'
+}
+
+async function saveTransaction(
+  data: {
+    type: 'income' | 'expense'
+    amount: number
+    category: string
+    payment_method: string
+    description: string
+  },
+  userId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!supabaseAdmin) {
-    console.warn('Supabase não está configurado')
-    return
+    return { ok: false, error: 'Supabase não está configurado.' }
   }
 
   try {
-    // Criar transação diretamente (sem tabela categories separada)
-    const insertResult = await supabaseAdmin.from('transactions').insert([
+    const { error } = await supabaseAdmin.from('transactions').insert([
       {
-        amount: data.amount,
-        type: data.type,
-        category: data.category,
-        description: data.description || '',
-        payment_method: data.payment_method || 'cash',
         user_id: userId,
-        date: new Date().toISOString().split('T')[0],
+        amount: data.amount,
+        currency: 'BRL',
+        category: data.category,
+        description: data.description,
+        inserted_at: new Date().toISOString(),
+        date: formatDateISO(new Date()),
+        type: data.type,
+        payment_method: data.payment_method,
+        payment_details: null,
       },
     ])
 
-    if (insertResult.error) {
-      if (isMissingColumnError(insertResult.error, 'category')) {
-        const categoryId = await getOrCreateCategory(data.category, data.type, userId)
-        await supabaseAdmin.from('transactions').insert([
-          {
-            amount: data.amount,
-            type: data.type,
-            category_id: categoryId,
-            description: data.description || '',
-            payment_method: data.payment_method || 'cash',
-            user_id: userId,
-            date: new Date().toISOString().split('T')[0],
-          },
-        ])
-      } else {
-        console.error('Erro ao salvar transação:', insertResult.error)
-      }
+    if (error) {
+      console.error('Erro ao salvar transação:', error)
+      return { ok: false, error: error.message }
     }
+
+    return { ok: true }
   } catch (error) {
     console.error('Erro ao salvar transação:', error)
+    return { ok: false, error: 'Erro interno ao salvar transação.' }
   }
 }
 
-async function getOrCreateCategory(name: string, type: 'income' | 'expense', userId: string) {
-  if (!supabaseAdmin) return null
-  const trimmed = (name || '').trim()
-  if (!trimmed) return null
+async function handleBalance(userId: string): Promise<string> {
+  if (!supabaseAdmin) return 'Erro: Supabase não está configurado.'
 
-  try {
-    const { data: existing } = await supabaseAdmin
-      .from('categories')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('name', trimmed)
-      .eq('type', type)
-      .single()
+  const { data: incomes, error: incomesError } = await supabaseAdmin
+    .from('transactions')
+    .select('amount')
+    .eq('user_id', userId)
+    .eq('type', 'income')
 
-    if (existing?.id) return existing.id
+  const { data: expenses, error: expensesError } = await supabaseAdmin
+    .from('transactions')
+    .select('amount')
+    .eq('user_id', userId)
+    .eq('type', 'expense')
 
-    const { data: created } = await supabaseAdmin
-      .from('categories')
-      .insert([{ user_id: userId, name: trimmed, type }])
-      .select('id')
-      .single()
-
-    return created?.id || null
-  } catch (error) {
-    console.warn('Categorias não disponíveis:', error)
-    return null
+  if (incomesError || expensesError) {
+    console.error('Erro ao consultar saldo:', { incomesError, expensesError })
+    return 'Não consegui consultar seu saldo agora.'
   }
+
+  const totalIncome = incomes?.reduce((sum, t) => sum + Number(t.amount), 0) || 0
+  const totalExpense = expenses?.reduce((sum, t) => sum + Number(t.amount), 0) || 0
+  const balance = totalIncome - totalExpense
+
+  return `💰 SALDO ATUAL
+Receitas: R$ ${formatCurrency(totalIncome)}
+Gastos: R$ ${formatCurrency(totalExpense)}
+Saldo: R$ ${formatCurrency(balance)}
+${SITE_URL ? `📊 Ver detalhes completos:\n${SITE_URL}` : ''}`.trim()
 }
 
-function isMissingColumnError(error: any, column: string) {
-  const message = (error?.message || '').toLowerCase()
-  return (
-    message.includes(`column \"${column}\"`) ||
-    message.includes(`column "${column}"`) ||
-    message.includes('does not exist')
-  )
+async function handleStatement(userId: string): Promise<string> {
+  if (!supabaseAdmin) return 'Erro: Supabase não está configurado.'
+
+  const { data, error } = await supabaseAdmin
+    .from('transactions')
+    .select('amount, type, category, description, date')
+    .eq('user_id', userId)
+    .order('inserted_at', { ascending: false })
+    .limit(5)
+
+  if (error) {
+    console.error('Erro ao consultar extrato:', error)
+    return 'Não consegui consultar seu extrato agora.'
+  }
+
+  if (!data?.length) {
+    return 'Você ainda não tem movimentações registradas.'
+  }
+
+  const lines = data.map((t) => {
+    const signal = t.type === 'income' ? '+' : '-'
+    return `${formatDateFromString(t.date)} - ${t.description || t.category} (${t.category}) ${signal} R$ ${formatCurrency(Number(t.amount))}`
+  })
+
+  return `📋 EXTRATO - ÚLTIMAS ${data.length} MOVIMENTAÇÕES
+${lines.join('\n')}
+${SITE_URL ? `📊 Ver extrato completo:\n${SITE_URL}` : ''}`.trim()
 }
 
-async function handleQuery(message: string, userId: string): Promise<string> {
-  const lowerMessage = message.toLowerCase()
+async function handleSummary(userId: string): Promise<string> {
+  if (!supabaseAdmin) return 'Erro: Supabase não está configurado.'
 
-  if (lowerMessage.includes('saldo') || lowerMessage.includes('quanto tenho')) {
-    // Calcular saldo
-    if (!supabaseAdmin) return 'Erro: Supabase não está configurado.'
-    const { data: incomes } = await supabaseAdmin
-      .from('transactions')
-      .select('amount')
-      .eq('user_id', userId)
-      .eq('type', 'income')
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
 
-    const { data: expenses } = await supabaseAdmin
-      .from('transactions')
-      .select('amount')
-      .eq('user_id', userId)
-      .eq('type', 'expense')
+  const { data, error } = await supabaseAdmin
+    .from('transactions')
+    .select('amount, type, category, date')
+    .eq('user_id', userId)
+    .gte('date', `${year}-${month}-01`)
+    .lt('date', `${year}-${month}-32`)
 
-    const totalIncome = incomes?.reduce((sum, t) => sum + parseFloat(t.amount), 0) || 0
-    const totalExpense = expenses?.reduce((sum, t) => sum + parseFloat(t.amount), 0) || 0
-    const balance = totalIncome - totalExpense
-
-    return `💰 Seu saldo atual é R$ ${balance.toFixed(2)} (Receitas: R$ ${totalIncome.toFixed(2)}, Despesas: R$ ${totalExpense.toFixed(2)})`
+  if (error) {
+    console.error('Erro ao consultar resumo:', error)
+    return 'Não consegui consultar seu resumo agora.'
   }
 
-  if (lowerMessage.includes('relatório') || lowerMessage.includes('resumo')) {
-    // Resumo mensal
-    const currentMonth = new Date().toISOString().slice(0, 7) // YYYY-MM
-    if (!supabaseAdmin) return 'Erro: Supabase não está configurado.'
-    const { data: transactions } = await supabaseAdmin
-      .from('transactions')
-      .select('amount, type')
-      .eq('user_id', userId)
-      .gte('date', `${currentMonth}-01`)
-      .lt('date', `${currentMonth}-32`)
+  const income =
+    data?.filter((t) => t.type === 'income').reduce((sum, t) => sum + Number(t.amount), 0) || 0
 
-    const income =
-      transactions
-        ?.filter((t) => t.type === 'income')
-        .reduce((sum, t) => sum + parseFloat(t.amount), 0) || 0
-    const expense =
-      transactions
-        ?.filter((t) => t.type === 'expense')
-        .reduce((sum, t) => sum + parseFloat(t.amount), 0) || 0
+  const expense =
+    data?.filter((t) => t.type === 'expense').reduce((sum, t) => sum + Number(t.amount), 0) || 0
 
-    return `📊 Resumo do mês: Receitas R$ ${income.toFixed(2)}, Despesas R$ ${expense.toFixed(2)}, Lucro R$ ${(income - expense).toFixed(2)}`
-  }
+  return `📈 RESUMO DO MÊS
+Total receitas: R$ ${formatCurrency(income)}
+Total gastos: R$ ${formatCurrency(expense)}
+Resultado: R$ ${formatCurrency(income - expense)}
+${SITE_URL ? `📊 Ver relatório completo:\n${SITE_URL}` : ''}`.trim()
+}
 
-  return 'Olá! Sou seu assistente financeiro. Posso registrar transações como "Gastei R$ 50 no mercado" ou responder perguntas sobre seu saldo e relatórios.'
+function isBalanceQuery(text: string) {
+  return text.includes('saldo') || text.includes('quanto tenho')
+}
+
+function isStatementQuery(text: string) {
+  return text.includes('extrato') || text.includes('movimentacao') || text.includes('movimentação')
+}
+
+function isSummaryQuery(text: string) {
+  return text.includes('resumo') || text.includes('relatorio') || text.includes('relatório')
+}
+
+function isWebsiteLinkQuery(text: string) {
+  return text.includes('site') || text.includes('web') || text.includes('link')
+}
+
+function normalizeText(text: string) {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+}
+
+function formatCurrency(value: number) {
+  return value.toFixed(2).replace('.', ',')
+}
+
+function formatDateISO(date: Date) {
+  return date.toISOString().split('T')[0]
+}
+
+function formatDateBR(date: Date) {
+  return date.toLocaleDateString('pt-BR')
+}
+
+function formatTimeBR(date: Date) {
+  return date.toLocaleTimeString('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function formatDateFromString(value: string) {
+  if (!value) return ''
+  const [year, month, day] = value.split('-')
+  if (!year || !month || !day) return value
+  return `${day}/${month}/${year}`
 }
 
 async function sendMetaMessage(to: string, body: string) {
@@ -286,46 +452,17 @@ async function sendMetaMessage(to: string, body: string) {
     }),
   })
 
-  const text = await res.text()
+  const responseText = await res.text()
 
   if (!res.ok) {
     console.error('Meta send message ERROR', {
       status: res.status,
       statusText: res.statusText,
-      responseText: text,
+      responseText,
       to,
       phoneNumberId: META_PHONE_NUMBER_ID,
     })
   } else {
-    console.log('Meta send message OK', text)
+    console.log('Meta send message OK', responseText)
   }
-}
-
-async function transcribeAudio(audioId?: string): Promise<string | null> {
-  if (!audioId || !META_ACCESS_TOKEN || !openai) return null
-
-  // 1) Buscar URL da mídia
-  const mediaRes = await fetch(`https://graph.facebook.com/v20.0/${audioId}`, {
-    headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` },
-  })
-  if (!mediaRes.ok) return null
-  const mediaJson = await mediaRes.json()
-  const mediaUrl = mediaJson?.url as string | undefined
-  if (!mediaUrl) return null
-
-  // 2) Baixar o áudio
-  const audioRes = await fetch(mediaUrl, {
-    headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` },
-  })
-  if (!audioRes.ok) return null
-  const buffer = Buffer.from(await audioRes.arrayBuffer())
-
-  // 3) Transcrever com OpenAI
-  const file = new File([buffer], 'audio.ogg', { type: 'audio/ogg' })
-  const transcription = await openai.audio.transcriptions.create({
-    file,
-    model: 'whisper-1',
-  })
-
-  return transcription.text || null
 }
