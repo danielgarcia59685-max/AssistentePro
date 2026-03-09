@@ -1,12 +1,10 @@
 // src/app/api/whatsapp/webhook/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
 
 const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN
 const META_PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID
-const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || ''
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY =
@@ -16,10 +14,6 @@ const supabaseAdmin =
   SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
     ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     : null
-
-const openai = process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  : null
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
@@ -41,30 +35,25 @@ export async function POST(request: NextRequest) {
 
     const change = payload?.entry?.[0]?.changes?.[0]?.value
 
-    // Ignorar updates de status (delivery/read) — responder só quando vem message
     if (!change?.messages?.length) {
       return NextResponse.json({ ok: true })
     }
 
-    console.log('[WA webhook] hasMessages/hasStatuses:', {
-      hasMessages: Boolean(change?.messages?.length),
-      hasStatuses: Boolean(change?.statuses?.length),
-    })
-
     const message = change?.messages?.[0]
     const from = (message?.from as string | undefined) || undefined
     const text = (message?.text?.body as string | undefined) || undefined
-    const audioId = (message?.audio?.id as string | undefined) || undefined
 
     console.log('[WA webhook] message:', {
       type: message?.type,
       from: message?.from,
       text: message?.text?.body,
-      hasAudio: Boolean(message?.audio?.id),
     })
 
-    // Nada para processar
-    if (!from || (!text && !audioId)) {
+    if (!from || !text) {
+      await sendMetaMessage(
+        from || '',
+        'No momento consigo processar apenas mensagens de texto.'
+      )
       return NextResponse.json({ ok: true })
     }
 
@@ -73,7 +62,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 })
     }
 
-    // Encontrar ou criar usuário baseado no número
     let { data: user } = await supabaseAdmin
       .from('users')
       .select('*')
@@ -95,16 +83,8 @@ export async function POST(request: NextRequest) {
       user = newUser
     }
 
-    const content = text || (await transcribeAudio(audioId))
+    const response = await processMessage(text, user.id)
 
-    if (!content) {
-      await sendMetaMessage(from, 'Não consegui ler sua mensagem. Tente enviar em texto.')
-      return NextResponse.json({ ok: true })
-    }
-
-    const response = await processMessage(content, user.id)
-
-    console.log('[WA webhook] will reply to:', from)
     await sendMetaMessage(from, response)
 
     return NextResponse.json({ ok: true })
@@ -114,54 +94,106 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/* =========================
-   Helpers
-========================= */
-
 async function processMessage(message: string, userId: string): Promise<string> {
-  if (!openai) {
-    return 'Integração com IA não configurada. Defina OPENAI_API_KEY para habilitar.'
+  const parsed = parseTransaction(message)
+
+  if (parsed.type === 'query') {
+    return await handleQuery(message, userId)
   }
 
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      {
-        role: 'system',
-        content: `Você é um assistente financeiro. Analise a mensagem do usuário e extraia informações de transações financeiras.
-Responda sempre em português brasileiro e seja conciso.
-Formatos esperados:
-- "Gastei R$ 50 no mercado com cartão" -> tipo: expense, valor: 50, categoria: Alimentação, método: card
-- "Recebi R$ 1000 de salário no PIX" -> tipo: income, valor: 1000, categoria: Salário, método: pix
-- "Paguei a conta de luz R$ 150" -> tipo: expense, valor: 150, categoria: Serviços, método: não especificado
-Retorne apenas um JSON com:
-{ "type": "income|expense|query", "amount": number, "category": "string", "payment_method": "pix|card|cash|transfer", "description": "string" }
-Se não for uma transação, retorne { "type": "query" }.`,
-      },
-      { role: 'user', content: message },
-    ],
-  })
-
-  const aiResponse = completion.choices?.[0]?.message?.content
-
-  try {
-    const parsed = JSON.parse(aiResponse || '{}')
-
-    if (parsed.type === 'query') {
-      return await handleQuery(message, userId)
-    }
-
-    if (parsed.type === 'income' || parsed.type === 'expense') {
-      await saveTransaction(parsed, userId)
-      return `Transação registrada: ${
-        parsed.type === 'income' ? 'Receita' : 'Despesa'
-      } de R$ ${Number(parsed.amount).toFixed(2)} na categoria ${parsed.category}`
-    }
-  } catch (error) {
-    console.error('Erro ao parsear resposta da IA:', error, { aiResponse })
+  if (parsed.type === 'income' || parsed.type === 'expense') {
+    await saveTransaction(parsed, userId)
+    return `Transação registrada: ${
+      parsed.type === 'income' ? 'Receita' : 'Despesa'
+    } de R$ ${Number(parsed.amount).toFixed(2)} na categoria ${parsed.category}`
   }
 
-  return 'Para registrar transações, diga algo como: "Gastei R$ 50 no mercado".'
+  return 'Envie algo como: "Gastei 50 no mercado", "Recebi 1200 de salário", "saldo" ou "resumo".'
+}
+
+function parseTransaction(message: string): {
+  type: 'income' | 'expense' | 'query'
+  amount?: number
+  category?: string
+  payment_method?: 'pix' | 'card' | 'cash' | 'transfer'
+  description?: string
+} {
+  const original = message.trim()
+  const text = original.toLowerCase()
+
+  if (
+    text.includes('saldo') ||
+    text.includes('quanto tenho') ||
+    text.includes('relatório') ||
+    text.includes('relatorio') ||
+    text.includes('resumo')
+  ) {
+    return { type: 'query' }
+  }
+
+  const amountMatch = text.match(/(\d+[.,]?\d{0,2})/)
+  const amount = amountMatch
+    ? Number(amountMatch[1].replace('.', '').replace(',', '.'))
+    : undefined
+
+  const isIncome =
+    text.includes('recebi') ||
+    text.includes('ganhei') ||
+    text.includes('entrou') ||
+    text.includes('salário') ||
+    text.includes('salario')
+
+  const isExpense =
+    text.includes('gastei') ||
+    text.includes('paguei') ||
+    text.includes('comprei') ||
+    text.includes('gasto') ||
+    text.includes('despesa')
+
+  if (!amount || (!isIncome && !isExpense)) {
+    return { type: 'query' }
+  }
+
+  const payment_method = detectPaymentMethod(text)
+  const category = detectCategory(text, isIncome ? 'income' : 'expense')
+
+  return {
+    type: isIncome ? 'income' : 'expense',
+    amount,
+    category,
+    payment_method,
+    description: original,
+  }
+}
+
+function detectPaymentMethod(
+  text: string
+): 'pix' | 'card' | 'cash' | 'transfer' {
+  if (text.includes('pix')) return 'pix'
+  if (text.includes('cartão') || text.includes('cartao') || text.includes('débito') || text.includes('debito') || text.includes('crédito') || text.includes('credito')) {
+    return 'card'
+  }
+  if (text.includes('transferência') || text.includes('transferencia') || text.includes('ted')) {
+    return 'transfer'
+  }
+  return 'cash'
+}
+
+function detectCategory(text: string, type: 'income' | 'expense'): string {
+  if (type === 'income') {
+    if (text.includes('salário') || text.includes('salario')) return 'Salário'
+    if (text.includes('freela') || text.includes('freelance')) return 'Freelance'
+    if (text.includes('venda')) return 'Vendas'
+    return 'Receitas'
+  }
+
+  if (text.includes('mercado') || text.includes('supermercado')) return 'Alimentação'
+  if (text.includes('restaurante') || text.includes('lanche') || text.includes('ifood')) return 'Alimentação'
+  if (text.includes('uber') || text.includes('99') || text.includes('combustível') || text.includes('combustivel')) return 'Transporte'
+  if (text.includes('luz') || text.includes('água') || text.includes('agua') || text.includes('internet')) return 'Serviços'
+  if (text.includes('farmácia') || text.includes('farmacia') || text.includes('remédio') || text.includes('remedio')) return 'Saúde'
+
+  return 'Outros'
 }
 
 async function saveTransaction(data: any, userId: string) {
@@ -272,12 +304,12 @@ async function handleQuery(message: string, userId: string): Promise<string> {
       expenses?.reduce((sum: number, t: any) => sum + Number(t.amount), 0) || 0
     const balance = totalIncome - totalExpense
 
-    return `Seu saldo atual é R$ ${balance.toFixed(2)} (Receitas: R$ ${totalIncome.toFixed(
+    return `Seu saldo atual é R$ ${balance.toFixed(2)}. Receitas: R$ ${totalIncome.toFixed(
       2
-    )}, Despesas: R$ ${totalExpense.toFixed(2)})`
+    )}. Despesas: R$ ${totalExpense.toFixed(2)}.`
   }
 
-  if (lowerMessage.includes('relatório') || lowerMessage.includes('resumo')) {
+  if (lowerMessage.includes('relatório') || lowerMessage.includes('relatorio') || lowerMessage.includes('resumo')) {
     const currentMonth = new Date().toISOString().slice(0, 7)
 
     if (!supabaseAdmin) return 'Erro: Supabase não está configurado.'
@@ -301,13 +333,15 @@ async function handleQuery(message: string, userId: string): Promise<string> {
 
     return `Resumo do mês: Receitas R$ ${income.toFixed(2)}, Despesas R$ ${expense.toFixed(
       2
-    )}, Lucro R$ ${(income - expense).toFixed(2)}`
+    )}, Saldo R$ ${(income - expense).toFixed(2)}`
   }
 
-  return 'Posso registrar transações como "Gastei R$ 50 no mercado" ou responder perguntas sobre saldo e relatórios.'
+  return 'Posso registrar transações e informar saldo ou resumo do mês.'
 }
 
 async function sendMetaMessage(to: string, body: string) {
+  if (!to) return
+
   if (!META_ACCESS_TOKEN || !META_PHONE_NUMBER_ID) {
     console.warn('Meta WhatsApp não configurado', {
       hasAccessToken: Boolean(META_ACCESS_TOKEN),
@@ -318,10 +352,6 @@ async function sendMetaMessage(to: string, body: string) {
 
   const toDigits = String(to).replace(/\D/g, '')
   const url = `https://graph.facebook.com/v20.0/${META_PHONE_NUMBER_ID}/messages`
-
-  console.log('[WA send] url:', url)
-  console.log('[WA send] to:', toDigits)
-  console.log('[WA send] token preview:', META_ACCESS_TOKEN.slice(0, 8) + '...')
 
   const res = await fetch(url, {
     method: 'POST',
@@ -350,35 +380,4 @@ async function sendMetaMessage(to: string, body: string) {
   } else {
     console.log('Meta send message OK', responseText)
   }
-}
-
-async function transcribeAudio(audioId?: string): Promise<string | null> {
-  if (!audioId || !META_ACCESS_TOKEN || !openai) return null
-
-  const mediaRes = await fetch(`https://graph.facebook.com/v20.0/${audioId}`, {
-    headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` },
-  })
-
-  if (!mediaRes.ok) return null
-
-  const mediaJson = await mediaRes.json()
-  const mediaUrl = mediaJson?.url as string | undefined
-
-  if (!mediaUrl) return null
-
-  const audioRes = await fetch(mediaUrl, {
-    headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` },
-  })
-
-  if (!audioRes.ok) return null
-
-  const buffer = Buffer.from(await audioRes.arrayBuffer())
-  const file = new File([buffer], 'audio.ogg', { type: 'audio/ogg' })
-
-  const transcription = await openai.audio.transcriptions.create({
-    file,
-    model: 'whisper-1',
-  })
-
-  return transcription.text || null
 }
