@@ -1,15 +1,24 @@
 {
   "name": "ap-payable-cli",
   "version": "1.0.0",
-  "description": "",
+  "description": "CLI de testes para accounts_payable no Supabase",
+  "type": "module",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "check:user": "node check-user.mjs",
+    "fix:admin": "node admin-fix.mjs",
+    "fix:insert": "node fix-and-insert.mjs",
+    "insert:test": "node insert-test.mjs",
+    "list:ids": "node list-ids.mjs",
+    "get:id": "node get-by-id.mjs"
   },
-  "keywords": [],
+  "keywords": [
+    "supabase",
+    "cli",
+    "accounts-payable"
+  ],
   "author": "",
   "license": "ISC",
-  "type": "module",
   "dependencies": {
     "@supabase/supabase-js": "^2.97.0",
     "dotenv": "^17.3.1"
