@@ -5,13 +5,26 @@ import { useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Edit, Trash2, Plus } from 'lucide-react'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { Navigation } from '@/components/Navigation'
 import { supabase } from '@/lib/supabase'
-import { useAuth } from '@/hooks/use-auth'
-import { toast } from '@/hooks/use-toast'
+import { useAuth } from '@/hooks/useAuth'
+import { toast } from '@/hooks/useToast'
 
 interface Transaction {
   id: string
@@ -26,7 +39,7 @@ interface Transaction {
 
 export default function TransactionsPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-black" />}> 
+    <Suspense fallback={<div className="min-h-screen bg-black" />}>
       <TransactionsContent />
     </Suspense>
   )
@@ -101,21 +114,14 @@ function TransactionsContent() {
 
   const fetchProfileCurrency = async () => {
     if (!supabase || !userId) return
-    const { data } = await supabase
-      .from('users')
-      .select('currency')
-      .eq('id', userId)
-      .single()
+    const { data } = await supabase.from('users').select('currency').eq('id', userId).single()
     if (data?.currency) setCurrency(data.currency)
   }
 
   const fetchCategories = async () => {
     if (!supabase || !userId) return
     try {
-      const { data } = await supabase
-        .from('categories')
-        .select('id, name')
-        .eq('user_id', userId)
+      const { data } = await supabase.from('categories').select('id, name').eq('user_id', userId)
 
       if (data) {
         const map = data.reduce((acc: Record<string, string>, row) => {
@@ -135,7 +141,7 @@ function TransactionsContent() {
       toast({ title: 'Erro', description: 'Supabase não configurado', variant: 'destructive' })
       return
     }
-    
+
     try {
       let query = supabase
         .from('transactions')
@@ -159,7 +165,11 @@ function TransactionsContent() {
 
       if (error) {
         console.error('Erro ao buscar transações:', error)
-        toast({ title: 'Erro', description: error.message || 'Falha ao buscar transações', variant: 'destructive' })
+        toast({
+          title: 'Erro',
+          description: error.message || 'Falha ao buscar transações',
+          variant: 'destructive',
+        })
       } else {
         setTransactions((data || []) as Transaction[])
       }
@@ -203,65 +213,79 @@ function TransactionsContent() {
     try {
       if (editingId) {
         // Atualizar transação existente
-        const updateResult = await supabase.from('transactions').update({
-          amount: parseFloat(formData.amount),
-          type: formData.type,
-          category: formData.category,
-          description: formData.description,
-          date: formData.date,
-          payment_method: formData.payment_method,
-        }).eq('id', editingId)
+        const updateResult = await supabase
+          .from('transactions')
+          .update({
+            amount: parseFloat(formData.amount),
+            type: formData.type,
+            category: formData.category,
+            description: formData.description,
+            date: formData.date,
+            payment_method: formData.payment_method,
+          })
+          .eq('id', editingId)
 
         if (updateResult.error) {
           if (isMissingColumnError(updateResult.error, 'category')) {
             const categoryId = await getOrCreateCategory(formData.category, formData.type)
-            await supabase.from('transactions').update({
-              amount: parseFloat(formData.amount),
-              type: formData.type,
-              category_id: categoryId,
-              description: formData.description,
-              date: formData.date,
-              payment_method: formData.payment_method,
-            }).eq('id', editingId)
+            await supabase
+              .from('transactions')
+              .update({
+                amount: parseFloat(formData.amount),
+                type: formData.type,
+                category_id: categoryId,
+                description: formData.description,
+                date: formData.date,
+                payment_method: formData.payment_method,
+              })
+              .eq('id', editingId)
           } else {
             throw updateResult.error
           }
         }
       } else {
         // Inserir nova transação
-        const insertResult = await supabase.from('transactions').insert([{
-          user_id: userId,
-          amount: parseFloat(formData.amount),
-          type: formData.type,
-          category: formData.category,
-          description: formData.description,
-          date: formData.date,
-          payment_method: formData.payment_method,
-        }])
+        const insertResult = await supabase.from('transactions').insert([
+          {
+            user_id: userId,
+            amount: parseFloat(formData.amount),
+            type: formData.type,
+            category: formData.category,
+            description: formData.description,
+            date: formData.date,
+            payment_method: formData.payment_method,
+          },
+        ])
 
         if (insertResult.error) {
           if (isMissingColumnError(insertResult.error, 'category')) {
             const categoryId = await getOrCreateCategory(formData.category, formData.type)
-            await supabase.from('transactions').insert([{
-              user_id: userId,
-              amount: parseFloat(formData.amount),
-              type: formData.type,
-              category_id: categoryId,
-              description: formData.description,
-              date: formData.date,
-              payment_method: formData.payment_method,
-            }])
+            await supabase.from('transactions').insert([
+              {
+                user_id: userId,
+                amount: parseFloat(formData.amount),
+                type: formData.type,
+                category_id: categoryId,
+                description: formData.description,
+                date: formData.date,
+                payment_method: formData.payment_method,
+              },
+            ])
           } else {
             throw insertResult.error
           }
         }
       }
-      
+
       resetForm()
       fetchTransactions()
     } catch (error: any) {
       console.error('Erro ao salvar transação:', error)
-      toast({ title: 'Erro', description: error?.message || 'Falha ao salvar transação', variant: 'destructive' })
+      toast({
+        title: 'Erro',
+        description: error?.message || 'Falha ao salvar transação',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -330,9 +354,12 @@ function TransactionsContent() {
 
   const isMissingColumnError = (error: any, column: string) => {
     const message = (error?.message || '').toLowerCase()
-    return message.includes(`column \"${column}\"`) || message.includes(`column "${column}"`) || message.includes('does not exist')
+    return (
+      message.includes(`column \"${column}\"`) ||
+      message.includes(`column "${column}"`) ||
+      message.includes('does not exist')
+    )
   }
-
 
   return (
     <div className="min-h-screen bg-black">
@@ -344,7 +371,7 @@ function TransactionsContent() {
             <h1 className="text-4xl font-bold text-white mb-2">Transações</h1>
             <p className="text-gray-400">Histórico completo de todas as transações</p>
           </div>
-          <Button 
+          <Button
             onClick={() => setShowForm(!showForm)}
             className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl flex items-center gap-2"
           >
@@ -391,7 +418,10 @@ function TransactionsContent() {
             </div>
             <div className="space-y-2">
               <Label className="text-gray-300 font-semibold">Tipo</Label>
-              <Select value={typeFilter} onValueChange={(value: 'all' | 'income' | 'expense') => setTypeFilter(value)}>
+              <Select
+                value={typeFilter}
+                onValueChange={(value: 'all' | 'income' | 'expense') => setTypeFilter(value)}
+              >
                 <SelectTrigger className="bg-gray-800 border-gray-700 rounded-xl text-white">
                   <SelectValue />
                 </SelectTrigger>
@@ -450,7 +480,9 @@ function TransactionsContent() {
         {/* Form */}
         {showForm && (
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
-            <h2 className="text-2xl font-bold text-white mb-6">{editingId ? 'Editar' : 'Adicionar'} Transação</h2>
+            <h2 className="text-2xl font-bold text-white mb-6">
+              {editingId ? 'Editar' : 'Adicionar'} Transação
+            </h2>
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
@@ -467,7 +499,12 @@ function TransactionsContent() {
                 </div>
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Tipo</Label>
-                  <Select value={formData.type} onValueChange={(value: 'income' | 'expense') => setFormData({ ...formData, type: value })}>
+                  <Select
+                    value={formData.type}
+                    onValueChange={(value: 'income' | 'expense') =>
+                      setFormData({ ...formData, type: value })
+                    }
+                  >
                     <SelectTrigger className="bg-gray-800 border-gray-700 rounded-xl text-white">
                       <SelectValue />
                     </SelectTrigger>
@@ -489,7 +526,10 @@ function TransactionsContent() {
                 </div>
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Método de Pagamento</Label>
-                  <Select value={formData.payment_method} onValueChange={(value) => setFormData({ ...formData, payment_method: value })}>
+                  <Select
+                    value={formData.payment_method}
+                    onValueChange={(value) => setFormData({ ...formData, payment_method: value })}
+                  >
                     <SelectTrigger className="bg-gray-800 border-gray-700 rounded-xl text-white">
                       <SelectValue />
                     </SelectTrigger>
@@ -522,11 +562,14 @@ function TransactionsContent() {
                 />
               </div>
               <div className="flex gap-3">
-                <Button type="submit" className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl transition">
+                <Button
+                  type="submit"
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl transition"
+                >
                   {editingId ? 'Atualizar' : 'Adicionar'}
                 </Button>
-                <Button 
-                  type="button" 
+                <Button
+                  type="button"
                   onClick={resetForm}
                   className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-6 py-3 rounded-xl"
                 >
@@ -560,31 +603,41 @@ function TransactionsContent() {
                   </TableRow>
                 ) : (
                   visibleTransactions.map((transaction) => (
-                    <TableRow key={transaction.id} className="border-b border-gray-800 hover:bg-gray-800/30 transition">
+                    <TableRow
+                      key={transaction.id}
+                      className="border-b border-gray-800 hover:bg-gray-800/30 transition"
+                    >
                       <TableCell className="text-gray-300 py-4">
                         {new Date(transaction.date).toLocaleDateString('pt-BR')}
                       </TableCell>
                       <TableCell className="text-gray-300">{transaction.description}</TableCell>
-                      <TableCell className="text-gray-300 capitalize">{getCategoryName(transaction) || '-'}</TableCell>
-                      <TableCell className="text-gray-300 capitalize">{formatPaymentMethod(transaction.payment_method)}</TableCell>
-                      <TableCell className={`font-bold text-right ${
-                        transaction.type === 'income' ? 'text-green-500' : 'text-red-500'
-                      }`}>
-                        {transaction.type === 'income' ? '+' : '-'} {formatCurrency(transaction.amount, currency)}
+                      <TableCell className="text-gray-300 capitalize">
+                        {getCategoryName(transaction) || '-'}
+                      </TableCell>
+                      <TableCell className="text-gray-300 capitalize">
+                        {formatPaymentMethod(transaction.payment_method)}
+                      </TableCell>
+                      <TableCell
+                        className={`font-bold text-right ${
+                          transaction.type === 'income' ? 'text-green-500' : 'text-red-500'
+                        }`}
+                      >
+                        {transaction.type === 'income' ? '+' : '-'}{' '}
+                        {formatCurrency(transaction.amount, currency)}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex gap-2 justify-end">
-                          <Button 
-                            size="sm" 
-                            variant="outline" 
+                          <Button
+                            size="sm"
+                            variant="outline"
                             onClick={() => handleEdit(transaction)}
                             className="border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-amber-600 hover:border-amber-600/30 p-2 h-9 w-9"
                           >
                             <Edit className="w-4 h-4" />
                           </Button>
-                          <Button 
-                            size="sm" 
-                            variant="outline" 
+                          <Button
+                            size="sm"
+                            variant="outline"
                             onClick={() => handleDelete(transaction.id)}
                             className="border-gray-700 text-gray-400 hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/30 p-2 h-9 w-9"
                           >
@@ -607,16 +660,21 @@ function TransactionsContent() {
 function formatCurrency(value: number, currency: string) {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
-    currency: currency || 'BRL'
+    currency: currency || 'BRL',
   }).format(Number(value) || 0)
 }
 
 function formatPaymentMethod(method: string) {
   switch (method) {
-    case 'pix': return 'PIX'
-    case 'card': return 'Cartão'
-    case 'transfer': return 'Transferência'
-    case 'cash': return 'Dinheiro'
-    default: return method
+    case 'pix':
+      return 'PIX'
+    case 'card':
+      return 'Cartão'
+    case 'transfer':
+      return 'Transferência'
+    case 'cash':
+      return 'Dinheiro'
+    default:
+      return method
   }
 }

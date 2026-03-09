@@ -52,12 +52,14 @@ export default function RegisterPage() {
       // Em produção, fazer hash no backend com bcrypt
       const { data: newUser, error: createError } = await supabase
         .from('users')
-        .insert([{
-          name: formData.name,
-          email: formData.email,
-          password_hash: formData.password, // Salvar senha simples por enquanto
-          whatsapp_number: formData.whatsapp || null,
-        }])
+        .insert([
+          {
+            name: formData.name,
+            email: formData.email,
+            password_hash: formData.password, // Salvar senha simples por enquanto
+            whatsapp_number: formData.whatsapp || null,
+          },
+        ])
         .select()
         .single()
 
@@ -84,9 +86,7 @@ export default function RegisterPage() {
         { name: 'Impostos', type: 'expense', user_id: newUser.id },
       ]
 
-      await supabase
-        .from('categories')
-        .insert(defaultCategories)
+      await supabase.from('categories').insert(defaultCategories)
 
       // Fazer login automático
       localStorage.setItem('user_id', newUser.id)
@@ -172,7 +172,11 @@ export default function RegisterPage() {
               />
             </div>
 
-            <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700" disabled={loading}>
+            <Button
+              type="submit"
+              className="w-full bg-indigo-600 hover:bg-indigo-700"
+              disabled={loading}
+            >
               {loading ? 'Criando conta...' : 'Criar conta'}
             </Button>
 

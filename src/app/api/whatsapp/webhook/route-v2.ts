@@ -17,11 +17,11 @@ function getTwilioClient() {
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const hubChallenge = searchParams.get('hub.challenge')
-  
+
   if (hubChallenge) {
     return new NextResponse(hubChallenge, { status: 200 })
   }
-  
+
   return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
 }
 
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     }
 
     const whatsappNumber = from.replace('whatsapp:', '')
-    
+
     // Encontrar ou criar usuário
     let { data: user, error: userError } = await supabase
       .from('users')
@@ -54,12 +54,14 @@ export async function POST(request: NextRequest) {
     if (!user) {
       const { data: newUser, error: createError } = await supabase
         .from('users')
-        .insert([{
-          name: `User ${whatsappNumber}`,
-          email: `${whatsappNumber}@whatsapp.local`,
-          whatsapp_number: whatsappNumber,
-          password_hash: 'whatsapp_user', // Usuários WhatsApp não usam senha
-        }])
+        .insert([
+          {
+            name: `User ${whatsappNumber}`,
+            email: `${whatsappNumber}@whatsapp.local`,
+            whatsapp_number: whatsappNumber,
+            password_hash: 'whatsapp_user', // Usuários WhatsApp não usam senha
+          },
+        ])
         .select()
         .single()
 
@@ -99,14 +101,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Log da mensagem
-    await supabase
-      .from('messages_log')
-      .insert([{
+    await supabase.from('messages_log').insert([
+      {
         user_id: user.id,
         whatsapp_number: whatsappNumber,
         message_type: messageType,
         original_message: messageContent,
-      }])
+      },
+    ])
 
     // Processar mensagem com OpenAI
     const response = await processMessage(messageContent, user.id, user.whatsapp_number!)
@@ -118,7 +120,7 @@ export async function POST(request: NextRequest) {
         await twilioClient.messages.create({
           from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
           to: from,
-          body: response
+          body: response,
         })
       } catch (err) {
         console.error('Erro ao enviar via Twilio:', err)
@@ -163,23 +165,20 @@ async function transcribeAudio(mediaUrl: string): Promise<string> {
   }
 }
 
-async function processMessage(message: string, userId: string, whatsappNumber: string): Promise<string> {
+async function processMessage(
+  message: string,
+  userId: string,
+  whatsappNumber: string,
+): Promise<string> {
   try {
     if (!supabase) {
       console.warn('Supabase não está configurado (processMessage)')
       return '❌ Serviço temporariamente indisponível.'
     }
     // Buscar contexto do usuário
-    const { data: userData } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single()
+    const { data: userData } = await supabase.from('users').select('*').eq('id', userId).single()
 
-    const { data: categories } = await supabase
-      .from('categories')
-      .select('*')
-      .eq('user_id', userId)
+    const { data: categories } = await supabase.from('categories').select('*').eq('user_id', userId)
 
     const { data: accountsPayable } = await supabase
       .from('accounts_payable')
@@ -205,10 +204,10 @@ IMPORTANTE:
 5. Ao identificar uma transação, responda confirmando o registro
 
 Categorias disponíveis:
-${categories?.map(c => `- ${c.name} (${c.type})`).join('\n')}
+${categories?.map((c) => `- ${c.name} (${c.type})`).join('\n')}
 
 Contas a pagar próximas:
-${accountsPayable?.map(a => `- ${a.supplier_name}: R$ ${a.amount} até ${a.due_date}`).join('\n') || 'Nenhuma pendente'}
+${accountsPayable?.map((a) => `- ${a.supplier_name}: R$ ${a.amount} até ${a.due_date}`).join('\n') || 'Nenhuma pendente'}
 
 Nome do usuário: ${userData?.name || 'Usuário'}
 `
@@ -217,16 +216,17 @@ Nome do usuário: ${userData?.name || 'Usuário'}
       model: 'gpt-4',
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: message }
+        { role: 'user', content: message },
       ],
       temperature: 0.7,
     })
 
-    const aiResponse = completion.choices[0].message.content || 'Não consegui processar sua mensagem'
+    const aiResponse =
+      completion.choices[0].message.content || 'Não consegui processar sua mensagem'
 
     // Tentar extrair dados de transação
     const transactionData = await extractTransactionData(message, userId)
-    
+
     if (transactionData) {
       await saveTransaction(transactionData, userId)
     }
@@ -275,9 +275,9 @@ Se for uma transação, retorne JSON assim:
 
 Se NÃO for transação, retorne: { "isTransaction": false }
 
-IMPORTANTE: Retorne APENAS o JSON, sem markdown ou explicações.`
+IMPORTANTE: Retorne APENAS o JSON, sem markdown ou explicações.`,
         },
-        { role: 'user', content: message }
+        { role: 'user', content: message },
       ],
       temperature: 0.3,
     })
@@ -314,9 +314,8 @@ async function saveTransaction(data: any, userId: string) {
       console.warn('Supabase não está configurado (saveTransaction)')
       return
     }
-    await supabase
-      .from('transactions')
-      .insert([{
+    await supabase.from('transactions').insert([
+      {
         user_id: userId,
         amount: data.amount,
         type: data.type,
@@ -326,7 +325,8 @@ async function saveTransaction(data: any, userId: string) {
         payment_method: data.payment_method,
         supplier_name: data.supplier_name,
         client_name: data.client_name,
-      }])
+      },
+    ])
   } catch (error) {
     console.error('Erro ao salvar transação:', error)
   }

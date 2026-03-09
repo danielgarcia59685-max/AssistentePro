@@ -8,9 +8,10 @@ const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN
 const META_PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID
 const REMINDER_CRON_SECRET = process.env.REMINDER_CRON_SECRET
 
-const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
-  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-  : null
+const supabaseAdmin =
+  SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    : null
 
 export async function POST(request: NextRequest) {
   const auth = request.headers.get('authorization')
@@ -26,7 +27,9 @@ export async function POST(request: NextRequest) {
 
   const { data: reminders, error } = await supabaseAdmin
     .from('reminders')
-    .select('id, user_id, title, description, due_date, due_time, send_notification, notification_sent_at, users(whatsapp_number, name)')
+    .select(
+      'id, user_id, title, description, due_date, due_time, send_notification, notification_sent_at, users(whatsapp_number, name)',
+    )
     .eq('due_date', today)
     .eq('status', 'pending')
     .eq('send_notification', true)
@@ -72,13 +75,13 @@ async function sendMetaMessage(to: string, body: string) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${META_ACCESS_TOKEN}`
+      Authorization: `Bearer ${META_ACCESS_TOKEN}`,
     },
     body: JSON.stringify({
       messaging_product: 'whatsapp',
       to,
       type: 'text',
-      text: { body }
-    })
+      text: { body },
+    }),
   })
 }

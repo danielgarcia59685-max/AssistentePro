@@ -3,13 +3,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
 
-const openai = process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  : null
-
 const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN
 const META_PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID
+const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || ''
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY =
@@ -20,7 +17,10 @@ const supabaseAdmin =
     ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     : null
 
-// GET handler para verificação do webhook (WhatsApp Cloud API)
+const openai = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
   const mode = searchParams.get('hub.mode')
@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
   if (mode === 'subscribe' && token === META_VERIFY_TOKEN) {
     return new Response(challenge, { status: 200 })
   }
+
   return new Response('Forbidden', { status: 403 })
 }
 
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 })
     }
 
-    // Encontrar ou criar usuário baseado no número (você está usando "email" como chave)
+    // Encontrar ou criar usuário baseado no número
     let { data: user } = await supabaseAdmin
       .from('users')
       .select('*')
@@ -90,6 +91,7 @@ export async function POST(request: NextRequest) {
         console.error('Erro ao criar usuário:', createError)
         return NextResponse.json({ error: 'Erro ao criar usuário' }, { status: 500 })
       }
+
       user = newUser
     }
 
@@ -103,7 +105,7 @@ export async function POST(request: NextRequest) {
     const response = await processMessage(content, user.id)
 
     console.log('[WA webhook] will reply to:', from)
-    await sendMetaMessage(from, response) // await para logar/pegar erro no mesmo request
+    await sendMetaMessage(from, response)
 
     return NextResponse.json({ ok: true })
   } catch (error) {
@@ -240,8 +242,8 @@ async function getOrCreateCategory(
 function isMissingColumnError(error: any, column: string) {
   const message = (error?.message || '').toLowerCase()
   return (
-    message.includes(`column \"${column}\"`) ||
     message.includes(`column "${column}"`) ||
+    message.includes(`column \"${column}\"`) ||
     message.includes('does not exist')
   )
 }
@@ -276,7 +278,8 @@ async function handleQuery(message: string, userId: string): Promise<string> {
   }
 
   if (lowerMessage.includes('relatório') || lowerMessage.includes('resumo')) {
-    const currentMonth = new Date().toISOString().slice(0, 7) // YYYY-MM
+    const currentMonth = new Date().toISOString().slice(0, 7)
+
     if (!supabaseAdmin) return 'Erro: Supabase não está configurado.'
 
     const { data: transactions } = await supabaseAdmin
@@ -290,6 +293,7 @@ async function handleQuery(message: string, userId: string): Promise<string> {
       transactions
         ?.filter((t: any) => t.type === 'income')
         .reduce((sum: number, t: any) => sum + Number(t.amount), 0) || 0
+
     const expense =
       transactions
         ?.filter((t: any) => t.type === 'expense')
@@ -312,12 +316,9 @@ async function sendMetaMessage(to: string, body: string) {
     return
   }
 
-  // WhatsApp Cloud API exige só dígitos (sem +, espaços, etc.)
   const toDigits = String(to).replace(/\D/g, '')
-
   const url = `https://graph.facebook.com/v20.0/${META_PHONE_NUMBER_ID}/messages`
 
-  // Logs de diagnóstico (não vaza token inteiro)
   console.log('[WA send] url:', url)
   console.log('[WA send] to:', toDigits)
   console.log('[WA send] token preview:', META_ACCESS_TOKEN.slice(0, 8) + '...')
@@ -336,19 +337,18 @@ async function sendMetaMessage(to: string, body: string) {
     }),
   })
 
-  const text = await res.text()
-  console.log('[WA send] status:', res.status, 'body:', text)
+  const responseText = await res.text()
 
   if (!res.ok) {
     console.error('Meta send message ERROR', {
       status: res.status,
       statusText: res.statusText,
-      responseText: text,
+      responseText,
       to: toDigits,
       phoneNumberId: META_PHONE_NUMBER_ID,
     })
   } else {
-    console.log('Meta send message OK', text)
+    console.log('Meta send message OK', responseText)
   }
 }
 
@@ -358,15 +358,18 @@ async function transcribeAudio(audioId?: string): Promise<string | null> {
   const mediaRes = await fetch(`https://graph.facebook.com/v20.0/${audioId}`, {
     headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` },
   })
+
   if (!mediaRes.ok) return null
 
   const mediaJson = await mediaRes.json()
   const mediaUrl = mediaJson?.url as string | undefined
+
   if (!mediaUrl) return null
 
   const audioRes = await fetch(mediaUrl, {
     headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` },
   })
+
   if (!audioRes.ok) return null
 
   const buffer = Buffer.from(await audioRes.arrayBuffer())
