@@ -3,8 +3,14 @@ import twilio from 'twilio'
 import OpenAI from 'openai'
 import { supabase } from '@/lib/supabase'
 import axios from 'axios'
+import {
+  getAutomaticResponse,
+  processTransactionMessage,
+} from '@/app/api/whatsapp/responses'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' })
+const openai = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null
 
 function getTwilioClient() {
   const sid = process.env.TWILIO_ACCOUNT_SID
@@ -13,7 +19,6 @@ function getTwilioClient() {
   return twilio(sid, token)
 }
 
-// GET handler para verificação do webhook
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const hubChallenge = searchParams.get('hub.challenge')
@@ -44,12 +49,11 @@ export async function POST(request: NextRequest) {
 
     const whatsappNumber = from.replace('whatsapp:', '')
 
-    // Encontrar ou criar usuário
-    let { data: user, error: userError } = await supabase
+    let { data: user } = await supabase
       .from('users')
       .select('*')
       .eq('whatsapp_number', whatsappNumber)
-      .single()
+      .maybeSingle()
 
     if (!user) {
       const { data: newUser, error: createError } = await supabase
@@ -59,7 +63,6 @@ export async function POST(request: NextRequest) {
             name: `User ${whatsappNumber}`,
             email: `${whatsappNumber}@whatsapp.local`,
             whatsapp_number: whatsappNumber,
-            password_hash: 'whatsapp_user', // Usuários WhatsApp não usam senha
           },
         ])
         .select()
@@ -69,9 +72,9 @@ export async function POST(request: NextRequest) {
         console.error('Erro ao criar usuário:', createError)
         return NextResponse.json({ error: 'Erro ao criar usuário' }, { status: 500 })
       }
+
       user = newUser
 
-      // Criar categorias padrão
       const defaultCategories = [
         { name: 'Salário', type: 'income', user_id: user.id },
         { name: 'Vendas', type: 'income', user_id: user.id },
@@ -81,13 +84,13 @@ export async function POST(request: NextRequest) {
         { name: 'Transporte', type: 'expense', user_id: user.id },
         { name: 'Outros', type: 'expense', user_id: user.id },
       ]
+
       await supabase.from('categories').insert(defaultCategories)
     }
 
     let messageContent = body || ''
     let messageType = 'text'
 
-    // Se for áudio, transcrever
     if (mediaUrl && mediaType?.includes('audio')) {
       try {
         console.log('Transcrevendo áudio...')
@@ -95,12 +98,14 @@ export async function POST(request: NextRequest) {
         messageType = 'audio'
       } catch (transcribeError) {
         console.error('Erro ao transcrever áudio:', transcribeError)
-        // Continuar com mensagem vazia se falhar
-        messageContent = '[Áudio não pôde ser transcrito]'
+        messageContent = ''
       }
     }
 
-    // Log da mensagem
+    if (!messageContent?.trim()) {
+      messageContent = 'ajuda'
+    }
+
     await supabase.from('messages_log').insert([
       {
         user_id: user.id,
@@ -110,15 +115,15 @@ export async function POST(request: NextRequest) {
       },
     ])
 
-    // Processar mensagem com OpenAI
-    const response = await processMessage(messageContent, user.id, user.whatsapp_number!)
+    const response = await processMessage(messageContent, user.id)
 
-    // Enviar resposta via WhatsApp (somente se Twilio estiver configurado)
     const twilioClient = getTwilioClient()
     if (twilioClient && process.env.TWILIO_WHATSAPP_NUMBER) {
       try {
         await twilioClient.messages.create({
-          from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
+          from: process.env.TWILIO_WHATSAPP_NUMBER.startsWith('whatsapp:')
+            ? process.env.TWILIO_WHATSAPP_NUMBER
+            : `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
           to: from,
           body: response,
         })
@@ -136,46 +141,47 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Transcrever áudio usando OpenAI Whisper
 async function transcribeAudio(mediaUrl: string): Promise<string> {
-  try {
-    // Baixar arquivo de áudio
-    const sid = process.env.TWILIO_ACCOUNT_SID
-    const token = process.env.TWILIO_AUTH_TOKEN
-    const auth = sid && token ? { username: sid, password: token } : undefined
-
-    const audioResponse = await axios.get(mediaUrl, {
-      responseType: 'arraybuffer',
-      ...(auth ? { auth } : {}),
-    })
-
-    const audioBuffer = Buffer.from(audioResponse.data)
-
-    // Usar Whisper API do OpenAI
-    const transcription = await openai.audio.transcriptions.create({
-      file: new File([audioBuffer], 'audio.ogg', { type: 'audio/ogg' }),
-      model: 'whisper-1',
-      language: 'pt', // Português
-    })
-
-    return transcription.text
-  } catch (error) {
-    console.error('Erro ao transcrever:', error)
-    throw error
+  if (!openai) {
+    return ''
   }
+
+  const sid = process.env.TWILIO_ACCOUNT_SID
+  const token = process.env.TWILIO_AUTH_TOKEN
+  const auth = sid && token ? { username: sid, password: token } : undefined
+
+  const audioResponse = await axios.get(mediaUrl, {
+    responseType: 'arraybuffer',
+    ...(auth ? { auth } : {}),
+  })
+
+  const audioBuffer = Buffer.from(audioResponse.data)
+  const file = new File([audioBuffer], 'audio.ogg', { type: 'audio/ogg' })
+
+  const transcription = await openai.audio.transcriptions.create({
+    file,
+    model: 'whisper-1',
+    language: 'pt',
+  })
+
+  return transcription.text
 }
 
-async function processMessage(
-  message: string,
-  userId: string,
-  whatsappNumber: string,
-): Promise<string> {
+async function processMessage(message: string, userId: string): Promise<string> {
+  if (!supabase) {
+    return '❌ Serviço temporariamente indisponível.'
+  }
+
+  const directTransactionResponse = await processTransactionMessage(message, userId, supabase)
+  if (directTransactionResponse) {
+    return directTransactionResponse
+  }
+
+  if (!openai) {
+    return await getAutomaticResponse(message, userId, supabase)
+  }
+
   try {
-    if (!supabase) {
-      console.warn('Supabase não está configurado (processMessage)')
-      return '❌ Serviço temporariamente indisponível.'
-    }
-    // Buscar contexto do usuário
     const { data: userData } = await supabase.from('users').select('*').eq('id', userId).single()
 
     const { data: categories } = await supabase.from('categories').select('*').eq('user_id', userId)
@@ -187,7 +193,6 @@ async function processMessage(
       .eq('status', 'pending')
       .limit(5)
 
-    // Prompt melhorado com contexto
     const systemPrompt = `Você é um assistente financeiro inteligente. Seu nome é Lasy Finance.
 
 Você ajuda a gerenciar:
@@ -204,16 +209,16 @@ IMPORTANTE:
 5. Ao identificar uma transação, responda confirmando o registro
 
 Categorias disponíveis:
-${categories?.map((c) => `- ${c.name} (${c.type})`).join('\n')}
+${categories?.map((c: any) => `- ${c.name} (${c.type})`).join('\n') || 'Nenhuma'}
 
 Contas a pagar próximas:
-${accountsPayable?.map((a) => `- ${a.supplier_name}: R$ ${a.amount} até ${a.due_date}`).join('\n') || 'Nenhuma pendente'}
+${accountsPayable?.map((a: any) => `- ${a.supplier_name}: R$ ${a.amount} até ${a.due_date}`).join('\n') || 'Nenhuma pendente'}
 
 Nome do usuário: ${userData?.name || 'Usuário'}
 `
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4',
+      model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: message },
@@ -222,112 +227,17 @@ Nome do usuário: ${userData?.name || 'Usuário'}
     })
 
     const aiResponse =
-      completion.choices[0].message.content || 'Não consegui processar sua mensagem'
+      completion.choices[0]?.message?.content || 'Não consegui processar sua mensagem.'
 
-    // Tentar extrair dados de transação
-    const transactionData = await extractTransactionData(message, userId)
-
-    if (transactionData) {
-      await saveTransaction(transactionData, userId)
-    }
-
-    // Atualizar log com resposta
     await supabase
       .from('messages_log')
-      .update({ parsed_data: transactionData, response: aiResponse })
-      .eq('whatsapp_number', whatsappNumber)
+      .update({ response: aiResponse })
+      .eq('whatsapp_number', userData?.whatsapp_number || '')
       .order('created_at', { ascending: false })
-      .limit(1)
 
     return aiResponse
   } catch (error) {
     console.error('Erro ao processar mensagem:', error)
-    return '❌ Desculpe, houve um erro ao processar sua mensagem. Tente novamente.'
-  }
-}
-
-async function extractTransactionData(message: string, userId: string): Promise<any> {
-  try {
-    if (!supabase) {
-      console.warn('Supabase não está configurado (extractTransactionData)')
-      return null
-    }
-    // Usar GPT para extrair dados estruturados
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4',
-      messages: [
-        {
-          role: 'system',
-          content: `Analise a mensagem do usuário e extraia dados de transação financeira em JSON.
-          
-Se for uma transação, retorne JSON assim:
-{
-  "isTransaction": true,
-  "amount": 100.00,
-  "type": "expense" ou "income",
-  "category": "categoria",
-  "description": "descrição",
-  "date": "YYYY-MM-DD",
-  "payment_method": "pix|card|cash|transfer",
-  "supplier_name": "nome da loja/fornecedor" (se expense),
-  "client_name": "nome do cliente" (se income)
-}
-
-Se NÃO for transação, retorne: { "isTransaction": false }
-
-IMPORTANTE: Retorne APENAS o JSON, sem markdown ou explicações.`,
-        },
-        { role: 'user', content: message },
-      ],
-      temperature: 0.3,
-    })
-
-    const responseText = completion.choices[0].message.content || '{}'
-    const parsed = JSON.parse(responseText)
-
-    if (parsed.isTransaction) {
-      // Buscar category_id
-      const { data: category } = await supabase
-        .from('categories')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('name', parsed.category)
-        .single()
-
-      return {
-        ...parsed,
-        category_id: category?.id || null,
-        date: parsed.date || new Date().toISOString().split('T')[0],
-      }
-    }
-
-    return null
-  } catch (error) {
-    console.error('Erro ao extrair dados da transação:', error)
-    return null
-  }
-}
-
-async function saveTransaction(data: any, userId: string) {
-  try {
-    if (!supabase) {
-      console.warn('Supabase não está configurado (saveTransaction)')
-      return
-    }
-    await supabase.from('transactions').insert([
-      {
-        user_id: userId,
-        amount: data.amount,
-        type: data.type,
-        category_id: data.category_id,
-        description: data.description,
-        date: data.date,
-        payment_method: data.payment_method,
-        supplier_name: data.supplier_name,
-        client_name: data.client_name,
-      },
-    ])
-  } catch (error) {
-    console.error('Erro ao salvar transação:', error)
+    return await getAutomaticResponse(message, userId, supabase)
   }
 }
