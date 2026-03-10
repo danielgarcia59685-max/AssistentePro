@@ -1,23 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
-const SUPABASE_SERVICE_ROLE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE
+
+  if (!url || !serviceRoleKey) return null
+  return createClient(url, serviceRoleKey)
+}
+
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN
 const META_PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID
 const REMINDER_CRON_SECRET = process.env.REMINDER_CRON_SECRET
 
-const supabaseAdmin =
-  SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
-    ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-    : null
-
 export async function POST(request: NextRequest) {
   const auth = request.headers.get('authorization')
+
   if (REMINDER_CRON_SECRET && auth !== `Bearer ${REMINDER_CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const supabaseAdmin = getSupabaseAdmin()
 
   if (!supabaseAdmin) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 })
@@ -41,24 +45,34 @@ export async function POST(request: NextRequest) {
   }
 
   let sent = 0
+  let skipped = 0
 
   for (const reminder of reminders || []) {
     const userRow = Array.isArray(reminder.users) ? reminder.users[0] : reminder.users
     const whatsappNumber = userRow?.whatsapp_number as string | undefined
-    if (whatsappNumber && META_ACCESS_TOKEN && META_PHONE_NUMBER_ID) {
-      const body = buildReminderMessage(reminder)
-      await sendMetaMessage(whatsappNumber, body)
+
+    if (!whatsappNumber) {
+      skipped += 1
+      continue
     }
 
-    await supabaseAdmin
-      .from('reminders')
-      .update({ notification_sent_at: new Date().toISOString() })
-      .eq('id', reminder.id)
+    try {
+      const body = buildReminderMessage(reminder)
+      await sendMetaMessage(whatsappNumber, body)
 
-    sent += 1
+      await supabaseAdmin
+        .from('reminders')
+        .update({ notification_sent_at: new Date().toISOString() })
+        .eq('id', reminder.id)
+
+      sent += 1
+    } catch (sendError) {
+      console.error('Erro ao enviar lembrete:', sendError)
+      skipped += 1
+    }
   }
 
-  return NextResponse.json({ success: true, sent })
+  return NextResponse.json({ success: true, sent, skipped })
 }
 
 function buildReminderMessage(reminder: any) {
@@ -69,9 +83,14 @@ function buildReminderMessage(reminder: any) {
 }
 
 async function sendMetaMessage(to: string, body: string) {
-  const url = `https://graph.facebook.com/v20.0/${META_PHONE_NUMBER_ID}/messages`
+  if (!META_ACCESS_TOKEN || !META_PHONE_NUMBER_ID) {
+    throw new Error('Meta WhatsApp não configurado')
+  }
 
-  await fetch(url, {
+  const url = `https://graph.facebook.com/v20.0/${META_PHONE_NUMBER_ID}/messages`
+  const toDigits = String(to).replace(/\D/g, '')
+
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -79,9 +98,15 @@ async function sendMetaMessage(to: string, body: string) {
     },
     body: JSON.stringify({
       messaging_product: 'whatsapp',
-      to,
+      to: toDigits,
       type: 'text',
       text: { body },
     }),
   })
+
+  const text = await response.text()
+
+  if (!response.ok) {
+    throw new Error(`Meta error ${response.status}: ${text}`)
+  }
 }
