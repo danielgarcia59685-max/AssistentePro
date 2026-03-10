@@ -1,15 +1,29 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { useTransactions } from '@/context/TransactionsContext'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Navigation } from './Navigation'
-import { Calendar, DollarSign, TrendingUp, TrendingDown, Plus, Edit, Trash2 } from 'lucide-react'
+import {
+  Calendar,
+  DollarSign,
+  TrendingUp,
+  TrendingDown,
+  Plus,
+  Edit,
+  Trash2,
+} from 'lucide-react'
 import type { Transaction } from '@/context/TransactionsContext'
 
 type TxType = 'income' | 'expense'
@@ -23,7 +37,6 @@ interface Summary {
 export default function Dashboard() {
   const { userId, userEmail, logout, loading: authLoading } = useAuth()
 
-  // Context (tabela transactions / campos em inglês)
   const {
     transactions,
     refreshTransactions,
@@ -34,7 +47,11 @@ export default function Dashboard() {
     isConfigured,
   } = useTransactions()
 
-  const [summary, setSummary] = useState<Summary>({ totalIncome: 0, totalExpense: 0, balance: 0 })
+  const [summary, setSummary] = useState<Summary>({
+    totalIncome: 0,
+    totalExpense: 0,
+    balance: 0,
+  })
   const [pageLoading, setPageLoading] = useState(true)
 
   const [showAddForm, setShowAddForm] = useState(false)
@@ -61,19 +78,41 @@ export default function Dashboard() {
       }
 
       void (async () => {
-        await Promise.all([fetchProfileCurrency(), fetchCategories(), fetchSummary(), refreshTransactions()])
-        setPageLoading(false)
+        try {
+          await Promise.all([
+            fetchProfileCurrency(),
+            fetchCategories(),
+            fetchSummary(),
+            refreshTransactions(),
+          ])
+        } finally {
+          setPageLoading(false)
+        }
       })()
+
       return
     }
 
-    if (!authLoading && !userId) setPageLoading(false)
+    if (!authLoading && !userId) {
+      setPageLoading(false)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, userId])
 
   const fetchProfileCurrency = async () => {
     if (!supabase || !userId) return
-    const { data } = await supabase.from('users').select('currency').eq('id', userId).single()
+
+    const { data, error } = await supabase
+      .from('users')
+      .select('currency')
+      .eq('id', userId)
+      .single()
+
+    if (error) {
+      console.warn('Erro ao buscar moeda do perfil:', error.message)
+      return
+    }
+
     if (data?.currency) {
       setCurrency(data.currency)
       setFormData((prev) => ({ ...prev, currency: data.currency }))
@@ -82,13 +121,26 @@ export default function Dashboard() {
 
   const fetchCategories = async () => {
     if (!supabase || !userId) return
+
     try {
-      const { data } = await supabase.from('categories').select('id, name').eq('user_id', userId)
+      const { data, error } = await supabase
+        .from('categories')
+        .select('id, name')
+        .eq('user_id', userId)
+
+      if (error) {
+        console.warn('Erro ao buscar categorias:', error.message)
+        return
+      }
+
       if (data) {
-        const map = data.reduce((acc: Record<string, string>, row: { id: string; name: string }) => {
-          acc[row.id] = row.name
-          return acc
-        }, {})
+        const map = data.reduce(
+          (acc: Record<string, string>, row: { id: string; name: string }) => {
+            acc[row.id] = row.name
+            return acc
+          },
+          {},
+        )
         setCategoriesMap(map)
       }
     } catch (error) {
@@ -116,22 +168,45 @@ export default function Dashboard() {
       }
 
       const rows = (data ?? []) as Array<{ amount: number; type: TxType; date: string }>
-      const income = rows.filter((t) => t.type === 'income').reduce((sum, t) => sum + Number(t.amount || 0), 0)
-      const expense = rows.filter((t) => t.type === 'expense').reduce((sum, t) => sum + Number(t.amount || 0), 0)
+      const income = rows
+        .filter((t) => t.type === 'income')
+        .reduce((sum, t) => sum + Number(t.amount || 0), 0)
 
-      setSummary({ totalIncome: income, totalExpense: expense, balance: income - expense })
+      const expense = rows
+        .filter((t) => t.type === 'expense')
+        .reduce((sum, t) => sum + Number(t.amount || 0), 0)
+
+      setSummary({
+        totalIncome: income,
+        totalExpense: expense,
+        balance: income - expense,
+      })
     } catch (error) {
       console.error('Erro ao buscar resumo:', error)
     }
   }
 
-  const getCategoryName = (t: Transaction) => {
-    const raw = (t.category ?? '').trim()
+  const getCategoryName = (transaction: Transaction) => {
+    const raw = String(transaction.category ?? '').trim()
     if (!raw) return ''
     return categoriesMap[raw] ?? raw
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const resetForm = () => {
+    setFormData({
+      amount: '',
+      type: 'expense',
+      category: '',
+      description: '',
+      date: new Date().toISOString().split('T')[0],
+      payment_method: 'pix',
+      currency: currency || 'BRL',
+    })
+    setEditingId(null)
+    setShowAddForm(false)
+  }
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
 
     if (!userId) {
@@ -139,8 +214,9 @@ export default function Dashboard() {
       return
     }
 
-    const amt = Number(formData.amount)
-    if (!formData.amount || Number.isNaN(amt)) {
+    const amount = Number(formData.amount)
+
+    if (!formData.amount || Number.isNaN(amount) || amount <= 0) {
       alert('Por favor, insira um valor válido.')
       return
     }
@@ -151,35 +227,24 @@ export default function Dashboard() {
     }
 
     const payload = {
-      amount: amt,
+      amount,
       type: formData.type,
       category: formData.category.trim(),
       description: formData.description?.trim() || '',
       date: formData.date,
       payment_method: formData.payment_method,
       currency: formData.currency || currency || 'BRL',
-    } as any
+    }
 
     try {
       if (editingId) {
-        await updateTransaction(editingId, payload)
+        await updateTransaction(editingId, payload as never)
         setEditingId(null)
       } else {
-        await addTransaction(payload)
+        await addTransaction(payload as never)
       }
 
-      setShowAddForm(false)
-
-      setFormData({
-        amount: '',
-        type: 'expense',
-        category: '',
-        description: '',
-        date: new Date().toISOString().split('T')[0],
-        payment_method: 'pix',
-        currency: currency || 'BRL',
-      })
-
+      resetForm()
       await refreshTransactions()
       await fetchSummary()
     } catch (error) {
@@ -188,27 +253,31 @@ export default function Dashboard() {
     }
   }
 
-  const handleEditTransaction = (t: Transaction) => {
-    setEditingId(t.id)
+  const handleEditTransaction = (transaction: Transaction) => {
+    setEditingId(transaction.id)
     setFormData({
-      amount: String((t as any).amount ?? ''),
-      type: (t as any).type as TxType,
-      category: getCategoryName(t) || '',
-      description: (t as any).description ?? '',
-      date: ((t as any).date || '').split('T')[0],
-      payment_method: (t as any).payment_method || 'pix',
-      currency: (t as any).currency || currency || 'BRL',
+      amount: String(transaction.amount ?? ''),
+      type: (transaction.type as TxType) || 'expense',
+      category: getCategoryName(transaction) || '',
+      description: transaction.description ?? '',
+      date: String(transaction.date ?? '').split('T')[0],
+      payment_method: transaction.payment_method || 'pix',
+      currency: transaction.currency || currency || 'BRL',
     })
     setShowAddForm(true)
   }
 
   const handleDeleteTransaction = async (id: string) => {
+    const confirmed = window.confirm('Tem certeza que deseja deletar esta transação?')
+    if (!confirmed) return
+
     try {
       await deleteTransaction(id)
       await refreshTransactions()
       await fetchSummary()
-    } catch (err) {
-      console.error('Erro ao deletar transação:', err)
+    } catch (error) {
+      console.error('Erro ao deletar transação:', error)
+      alert('Erro ao deletar transação. Tente novamente.')
     }
   }
 
@@ -222,7 +291,8 @@ export default function Dashboard() {
           <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-2xl p-6">
             <h3 className="text-yellow-400 font-bold">Configuração Necessária</h3>
             <p className="text-gray-400 mt-2">
-              O Supabase não está configurado. Configure as variáveis de ambiente no arquivo <code>.env.local</code>.
+              O Supabase não está configurado. Configure as variáveis de ambiente no arquivo{' '}
+              <code>.env.local</code>.
             </p>
           </div>
         </div>
@@ -248,7 +318,9 @@ export default function Dashboard() {
         <Navigation />
         <div className="bg-gray-900 rounded-2xl p-8 border border-gray-800 max-w-md">
           <h2 className="text-white font-bold text-lg">Erro de Autenticação</h2>
-          <p className="text-gray-400 mt-2">Você não está autenticado. Por favor, faça login.</p>
+          <p className="text-gray-400 mt-2">
+            Você não está autenticado. Por favor, faça login.
+          </p>
         </div>
       </div>
     )
@@ -261,12 +333,14 @@ export default function Dashboard() {
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
           <div>
             <h1 className="text-4xl font-bold text-white mb-2">Página inicial</h1>
-            <p className="text-gray-400">Bem-vindo ao AssistentePro{userEmail ? ` (${userEmail})` : ''}</p>
+            <p className="text-gray-400">
+              Bem-vindo ao AssistentePro{userEmail ? ` (${userEmail})` : ''}
+            </p>
           </div>
 
           <div className="flex gap-3">
             <Button
-              onClick={() => setShowAddForm(!showAddForm)}
+              onClick={() => setShowAddForm((prev) => !prev)}
               className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-black font-semibold px-6 py-3 rounded-xl transition shadow-lg shadow-amber-600/20"
             >
               <Plus className="w-5 h-5" />
@@ -284,8 +358,10 @@ export default function Dashboard() {
         </header>
 
         {showAddForm && (
-          <div className="bg-gray-900 rounded-2xl shadow-xl p-8 border border-gray-800">
-            <h2 className="text-2xl font-bold text-white mb-6">{editingId ? 'Editar' : 'Adicionar'} Transação</h2>
+          <div className="bg-gray-900 rounded-2xl shadow-xl p-8 border border-gray-800 mb-8">
+            <h2 className="text-2xl font-bold text-white mb-6">
+              {editingId ? 'Editar' : 'Adicionar'} Transação
+            </h2>
 
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -370,16 +446,17 @@ export default function Dashboard() {
               </div>
 
               <div className="flex gap-3">
-                <Button type="submit" className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-lg transition">
+                <Button
+                  type="submit"
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-lg transition"
+                >
                   {editingId ? 'Atualizar' : 'Adicionar'}
                 </Button>
+
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => {
-                    setShowAddForm(false)
-                    setEditingId(null)
-                  }}
+                  onClick={resetForm}
                   className="border-gray-700 text-gray-300 hover:bg-gray-800 px-6 py-3 rounded-lg"
                 >
                   Cancelar
@@ -389,14 +466,30 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Resumo */}
         <section className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-          <SummaryCard title="Receitas" value={summary.totalIncome} currency={currency} color="green" Icon={TrendingUp} />
-          <SummaryCard title="Despesas" value={summary.totalExpense} currency={currency} color="red" Icon={TrendingDown} />
-          <SummaryCard title="Saldo" value={summary.balance} currency={currency} color="amber" Icon={DollarSign} />
+          <SummaryCard
+            title="Receitas"
+            value={summary.totalIncome}
+            currency={currency}
+            color="green"
+            Icon={TrendingUp}
+          />
+          <SummaryCard
+            title="Despesas"
+            value={summary.totalExpense}
+            currency={currency}
+            color="red"
+            Icon={TrendingDown}
+          />
+          <SummaryCard
+            title="Saldo"
+            value={summary.balance}
+            currency={currency}
+            color="amber"
+            Icon={DollarSign}
+          />
         </section>
 
-        {/* Lista */}
         <section>
           <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
             <Calendar className="w-6 h-6 text-amber-600" />
@@ -411,18 +504,18 @@ export default function Dashboard() {
                 <p className="text-sm mt-2">Clique em "Nova Transação" para começar!</p>
               </div>
             ) : (
-              transactions.slice(0, 10).map((t) => (
+              transactions.slice(0, 10).map((transaction) => (
                 <div
-                  key={t.id}
+                  key={transaction.id}
                   className="bg-gray-900 hover:bg-gray-800 transition p-4 rounded-xl border border-gray-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
                 >
                   <div className="flex items-start md:items-center gap-4 w-full md:w-auto">
                     <div
                       className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                        (t as any).type === 'income' ? 'bg-green-500/10' : 'bg-red-500/10'
+                        transaction.type === 'income' ? 'bg-green-500/10' : 'bg-red-500/10'
                       }`}
                     >
-                      {(t as any).type === 'income' ? (
+                      {transaction.type === 'income' ? (
                         <TrendingUp className="w-5 h-5 text-green-500" />
                       ) : (
                         <TrendingDown className="w-5 h-5 text-red-500" />
@@ -433,36 +526,43 @@ export default function Dashboard() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span
                           className={`text-xs font-medium px-2 py-0.5 rounded ${
-                            (t as any).type === 'income'
+                            transaction.type === 'income'
                               ? 'bg-green-500/10 text-green-400'
                               : 'bg-red-500/10 text-red-400'
                           }`}
                         >
-                          {(t as any).type === 'income' ? 'Receita' : 'Despesa'}
+                          {transaction.type === 'income' ? 'Receita' : 'Despesa'}
                         </span>
 
-                        <h4 className="text-white font-semibold capitalize">{getCategoryName(t) || '-'}</h4>
+                        <h4 className="text-white font-semibold capitalize">
+                          {getCategoryName(transaction) || '-'}
+                        </h4>
                       </div>
 
-                      <p className="text-gray-400 text-sm mt-1">{(t as any).description ?? ''}</p>
+                      <p className="text-gray-400 text-sm mt-1">
+                        {transaction.description ?? ''}
+                      </p>
                       <p className="text-gray-500 text-xs mt-1">
-                        {new Date((t as any).date).toLocaleDateString('pt-BR')}
+                        {new Date(transaction.date).toLocaleDateString('pt-BR')}
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-4 w-full md:w-auto md:justify-end">
                     <span
-                      className={`text-lg font-bold ${(t as any).type === 'income' ? 'text-green-500' : 'text-red-500'}`}
+                      className={`text-lg font-bold ${
+                        transaction.type === 'income' ? 'text-green-500' : 'text-red-500'
+                      }`}
                     >
-                      {(t as any).type === 'income' ? '+' : '-'} {formatCurrency((t as any).amount, currency)}
+                      {transaction.type === 'income' ? '+' : '-'}{' '}
+                      {formatCurrency(transaction.amount, currency)}
                     </span>
 
                     <div className="flex gap-2">
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => handleEditTransaction(t)}
+                        onClick={() => handleEditTransaction(transaction)}
                         className="border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-amber-600 hover:border-amber-600/30 p-2 h-9 w-9"
                       >
                         <Edit className="w-4 h-4" />
@@ -471,7 +571,7 @@ export default function Dashboard() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => void handleDeleteTransaction(t.id)}
+                        onClick={() => void handleDeleteTransaction(transaction.id)}
                         className="border-gray-700 text-gray-400 hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/30 p-2 h-9 w-9"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -511,7 +611,9 @@ function SummaryCard({
     <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 flex justify-between items-center hover:border-gray-700 transition">
       <div>
         <p className="text-gray-400 mb-1 font-medium">{title}</p>
-        <h3 className={`text-3xl font-bold ${colorMap[color].text}`}>{formatCurrency(value, currency)}</h3>
+        <h3 className={`text-3xl font-bold ${colorMap[color].text}`}>
+          {formatCurrency(value, currency)}
+        </h3>
         <p className="text-sm text-gray-500 mt-2">Mês atual</p>
       </div>
       <div className={`w-12 h-12 ${colorMap[color].bg} rounded-full flex items-center justify-center`}>
