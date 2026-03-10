@@ -266,7 +266,7 @@ export default function DashboardPage() {
 
               <div className="mt-4 flex justify-end">
                 <Button asChild variant="secondary">
-                  <a href="/accounts-payable">Ver todas</a>
+                  <a href="/bills">Ver todas</a>
                 </Button>
               </div>
             </CardContent>
