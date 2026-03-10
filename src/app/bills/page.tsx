@@ -19,6 +19,7 @@ import { FileText, Plus, Trash2, CheckCircle2, Edit } from 'lucide-react'
 import { toast } from '@/hooks/useToast'
 
 type AccountStatus = 'pending' | 'paid' | 'overdue'
+type ActiveTab = 'payable' | 'receivable'
 
 interface Bill {
   id: string
@@ -29,25 +30,41 @@ interface Bill {
   supplier_name?: string | null
   client_name?: string | null
   payment_method?: string | null
+  payment_date?: string | null
   is_recurring: boolean
   recurrence_interval?: string | null
   recurrence_count?: number | null
   recurrence_end_date?: string | null
 }
 
+interface FormDataState {
+  amount: string
+  due_date: string
+  description: string
+  party_name: string
+  payment_method: string
+  is_recurring: boolean
+  recurrence_interval: string
+  recurrence_count: string
+  recurrence_end_date: string
+}
+
 export default function BillsPage() {
   const router = useRouter()
   const { userId, loading: authLoading } = useAuth()
+
   const [bills, setBills] = useState<Bill[]>([])
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'payable' | 'receivable'>('payable')
+  const [activeTab, setActiveTab] = useState<ActiveTab>('payable')
   const [month, setMonth] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | AccountStatus>('all')
   const [currency, setCurrency] = useState('BRL')
-  const [formData, setFormData] = useState({
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const [formData, setFormData] = useState<FormDataState>({
     amount: '',
     due_date: new Date().toISOString().split('T')[0],
     description: '',
@@ -58,17 +75,21 @@ export default function BillsPage() {
     recurrence_count: '',
     recurrence_end_date: '',
   })
-  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const dateRange = useMemo(() => {
     if (month) {
       const [yearStr, monthStr] = month.split('-')
       const year = Number(yearStr)
       const monthNumber = Number(monthStr)
-      if (!year || !monthNumber) return { start: null, end: null }
+
+      if (!year || !monthNumber) {
+        return { start: null, end: null }
+      }
+
       const lastDay = new Date(year, monthNumber, 0).getDate()
       const start = `${yearStr}-${monthStr}-01`
       const end = `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`
+
       return { start, end }
     }
 
@@ -83,24 +104,30 @@ export default function BillsPage() {
       router.push('/login')
       return
     }
+
     if (userId) {
-      fetchProfileCurrency()
-      fetchBills()
+      void fetchProfileCurrency()
+      void fetchBills()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, userId, authLoading, router, dateRange.start, dateRange.end, statusFilter])
 
   const fetchProfileCurrency = async () => {
     if (!supabase || !userId) return
+
     const { data } = await supabase.from('users').select('currency').eq('id', userId).single()
-    if (data?.currency) setCurrency(data.currency)
+
+    if (data?.currency) {
+      setCurrency(data.currency)
+    }
   }
 
   const fetchBills = async () => {
-    if (!supabase) return
-    if (!userId) return
+    if (!supabase || !userId) return
 
     try {
       const table = activeTab === 'payable' ? 'accounts_payable' : 'accounts_receivable'
+
       let query = supabase
         .from(table)
         .select('*')
@@ -116,38 +143,44 @@ export default function BillsPage() {
       }
 
       if (statusFilter !== 'all') {
-        query = query.eq('status', statusFilter as AccountStatus)
+        query = query.eq('status', statusFilter)
       }
 
       const { data, error } = await query
 
-      if (!error && data) {
-        const rows = data as unknown as Bill[]
-
-        const today = new Date().toISOString().split('T')[0]
-        const overdueIds = rows
-          .filter((bill) => bill.status === 'pending' && bill.due_date < today)
-          .map((bill) => bill.id)
-
-        if (overdueIds.length) {
-          await supabase.from(table).update({ status: 'overdue' as AccountStatus }).in('id', overdueIds)
-        }
-
-        const updatedData: Bill[] = rows.map((bill) =>
-          overdueIds.includes(bill.id) ? { ...bill, status: 'overdue' as AccountStatus } : bill,
-        )
-
-        setBills(updatedData)
+      if (error) {
+        throw error
       }
+
+      const rows = (data || []) as Bill[]
+      const today = new Date().toISOString().split('T')[0]
+
+      const overdueIds = rows
+        .filter((bill) => bill.status === 'pending' && bill.due_date < today)
+        .map((bill) => bill.id)
+
+      if (overdueIds.length > 0) {
+        await supabase.from(table).update({ status: 'overdue' }).in('id', overdueIds)
+      }
+
+      const updatedRows = rows.map((bill) =>
+        overdueIds.includes(bill.id) ? { ...bill, status: 'overdue' as AccountStatus } : bill,
+      )
+
+      setBills(updatedRows)
     } catch (error) {
       console.error('Erro ao buscar contas:', error)
+      setBills([])
     }
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+
     if (!supabase) return
+
     const { data: sessionData } = await supabase.auth.getSession()
+
     if (!sessionData.session) {
       toast({
         title: 'Sessão expirada',
@@ -156,12 +189,12 @@ export default function BillsPage() {
       })
       return
     }
+
     const authUserId = sessionData.session.user.id
     const authEmail = sessionData.session.user.email || ''
     const fallbackName = authEmail ? authEmail.split('@')[0] : 'Usuário'
 
-    // Validação
-    if (!formData.amount || isNaN(Number(formData.amount)) || Number(formData.amount) <= 0) {
+    if (!formData.amount || Number.isNaN(Number(formData.amount)) || Number(formData.amount) <= 0) {
       toast({
         title: 'Valor inválido',
         description: 'Informe um valor maior que 0',
@@ -169,7 +202,8 @@ export default function BillsPage() {
       })
       return
     }
-    if (!formData.party_name || formData.party_name.trim().length === 0) {
+
+    if (!formData.party_name.trim()) {
       toast({
         title: 'Nome inválido',
         description: 'Informe um nome para a conta',
@@ -177,6 +211,7 @@ export default function BillsPage() {
       })
       return
     }
+
     if (!formData.due_date) {
       toast({
         title: 'Data inválida',
@@ -185,10 +220,11 @@ export default function BillsPage() {
       })
       return
     }
+
     if (
       formData.is_recurring &&
       formData.recurrence_count &&
-      (isNaN(Number(formData.recurrence_count)) || Number(formData.recurrence_count) <= 0)
+      (Number.isNaN(Number(formData.recurrence_count)) || Number(formData.recurrence_count) <= 0)
     ) {
       toast({
         title: 'Recorrência inválida',
@@ -199,9 +235,11 @@ export default function BillsPage() {
     }
 
     setIsSubmitting(true)
+
     try {
       const table = activeTab === 'payable' ? 'accounts_payable' : 'accounts_receivable'
-      const billData: Record<string, any> = {
+
+      const billData: Record<string, unknown> = {
         user_id: authUserId,
         amount: parseFloat(formData.amount),
         due_date: formData.due_date,
@@ -221,7 +259,13 @@ export default function BillsPage() {
 
       await supabase
         .from('users')
-        .upsert([{ id: authUserId, email: authEmail || `${authUserId}@local`, name: fallbackName }])
+        .upsert([
+          {
+            id: authUserId,
+            email: authEmail || `${authUserId}@local`,
+            name: fallbackName,
+          },
+        ])
         .throwOnError()
 
       if (activeTab === 'payable') {
@@ -233,25 +277,30 @@ export default function BillsPage() {
       if (editingId) {
         await supabase
           .from(table)
-          .update(billData as any)
+          .update(billData)
           .eq('id', editingId)
           .select('id')
           .single()
           .throwOnError()
       } else {
         const payloads = buildRecurringBills(billData, formData)
-        await supabase.from(table).insert(payloads as any).throwOnError()
+        await supabase.from(table).insert(payloads).throwOnError()
       }
 
       resetForm()
-      fetchBills()
-      toast({ title: 'Sucesso', description: 'Conta salva com sucesso' })
-    } catch (error) {
-      const message = (error as any)?.message || JSON.stringify(error)
+      await fetchBills()
+
+      toast({
+        title: 'Sucesso',
+        description: 'Conta salva com sucesso',
+      })
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Não foi possível salvar a conta'
       console.error('Erro ao salvar conta:', error)
+
       toast({
         title: 'Erro',
-        description: message || 'Não foi possível salvar a conta',
+        description: message,
         variant: 'destructive',
       })
     } finally {
@@ -279,28 +328,26 @@ export default function BillsPage() {
     setFormData({
       amount: bill.amount.toString(),
       due_date: bill.due_date.split('T')[0],
-      description: bill.description,
-      party_name:
-        activeTab === 'payable'
-          ? (bill as Bill & { supplier_name?: string }).supplier_name || ''
-          : (bill as Bill & { client_name?: string }).client_name || '',
+      description: bill.description || '',
+      party_name: activeTab === 'payable' ? bill.supplier_name || '' : bill.client_name || '',
       payment_method: bill.payment_method || 'pix',
       is_recurring: bill.is_recurring || false,
       recurrence_interval: bill.recurrence_interval || 'monthly',
       recurrence_count: bill.recurrence_count?.toString() || '',
       recurrence_end_date: bill.recurrence_end_date || '',
     })
+
     setEditingId(bill.id)
     setShowForm(true)
   }
 
   const handleDelete = async (id: string) => {
-    if (!supabase || !confirm('Tem certeza?')) return
+    if (!supabase || !window.confirm('Tem certeza?')) return
 
     try {
       const table = activeTab === 'payable' ? 'accounts_payable' : 'accounts_receivable'
       await supabase.from(table).delete().eq('id', id)
-      fetchBills()
+      await fetchBills()
     } catch (error) {
       console.error('Erro ao deletar:', error)
     }
@@ -311,35 +358,41 @@ export default function BillsPage() {
 
     try {
       const table = activeTab === 'payable' ? 'accounts_payable' : 'accounts_receivable'
+
       await supabase
         .from(table)
-        .update({ status: 'paid' as AccountStatus, payment_date: new Date().toISOString().split('T')[0] })
+        .update({
+          status: 'paid',
+          payment_date: new Date().toISOString().split('T')[0],
+        })
         .eq('id', id)
-      fetchBills()
+
+      await fetchBills()
     } catch (error) {
       console.error('Erro ao atualizar status:', error)
     }
   }
 
-  const pendingBills = bills.filter((b) => b.status === 'pending')
-  const overdueBills = bills.filter((b) => b.status === 'overdue')
-  const paidBills = bills.filter((b) => b.status === 'paid')
+  const pendingBills = bills.filter((bill) => bill.status === 'pending')
+  const overdueBills = bills.filter((bill) => bill.status === 'overdue')
+  const paidBills = bills.filter((bill) => bill.status === 'paid')
+
   const totalAmount = bills
-    .filter((b) => b.status === 'pending' || b.status === 'overdue')
-    .reduce((sum, b) => sum + b.amount, 0)
+    .filter((bill) => bill.status === 'pending' || bill.status === 'overdue')
+    .reduce((sum, bill) => sum + Number(bill.amount || 0), 0)
 
   return (
     <div className="min-h-screen bg-black">
       <Navigation />
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-4xl font-bold text-white mb-2">Contas</h1>
             <p className="text-gray-400">Gerenciamento de Contas a Pagar e Receber</p>
           </div>
+
           <Button
-            onClick={() => setShowForm(!showForm)}
+            onClick={() => setShowForm((prev) => !prev)}
             className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl flex items-center gap-2"
           >
             <Plus className="w-5 h-5" />
@@ -347,11 +400,11 @@ export default function BillsPage() {
           </Button>
         </div>
 
-        {/* Tabs */}
         <div className="flex gap-4 mb-8 border-b border-gray-800">
           {(['payable', 'receivable'] as const).map((tab) => (
             <button
               key={tab}
+              type="button"
               onClick={() => setActiveTab(tab)}
               className={`px-6 py-3 font-medium text-lg transition-colors border-b-2 ${
                 activeTab === tab
@@ -364,7 +417,6 @@ export default function BillsPage() {
           ))}
         </div>
 
-        {/* Filters */}
         <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="space-y-2">
@@ -382,6 +434,7 @@ export default function BillsPage() {
                 className="bg-gray-800 border-gray-700 text-white rounded-xl"
               />
             </div>
+
             <div className="space-y-2">
               <Label className="text-gray-300">Data inicial</Label>
               <Input
@@ -394,6 +447,7 @@ export default function BillsPage() {
                 className="bg-gray-800 border-gray-700 text-white rounded-xl"
               />
             </div>
+
             <div className="space-y-2">
               <Label className="text-gray-300">Data final</Label>
               <Input
@@ -406,6 +460,7 @@ export default function BillsPage() {
                 className="bg-gray-800 border-gray-700 text-white rounded-xl"
               />
             </div>
+
             <div className="space-y-2">
               <Label className="text-gray-300">Status</Label>
               <Select
@@ -424,6 +479,7 @@ export default function BillsPage() {
               </Select>
             </div>
           </div>
+
           <div className="flex gap-3 mt-4">
             <Button
               type="button"
@@ -440,7 +496,6 @@ export default function BillsPage() {
           </div>
         </div>
 
-        {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
             <p className="text-gray-400 text-sm mb-2">
@@ -450,21 +505,23 @@ export default function BillsPage() {
               {formatCurrency(totalAmount, currency)}
             </p>
           </div>
+
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
             <p className="text-gray-400 text-sm mb-2">Pendente</p>
             <p className="text-3xl font-bold text-red-500">{pendingBills.length}</p>
           </div>
+
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
             <p className="text-gray-400 text-sm mb-2">Vencido</p>
             <p className="text-3xl font-bold text-orange-500">{overdueBills.length}</p>
           </div>
+
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
             <p className="text-gray-400 text-sm mb-2">Pago</p>
             <p className="text-3xl font-bold text-green-500">{paidBills.length}</p>
           </div>
         </div>
 
-        {/* Form */}
         {showForm && (
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -475,7 +532,9 @@ export default function BillsPage() {
                   </Label>
                   <Input
                     placeholder={
-                      activeTab === 'payable' ? 'Ex: Conta de luz, João Silva' : 'Ex: Empresa X'
+                      activeTab === 'payable'
+                        ? 'Ex: Conta de luz, João Silva'
+                        : 'Ex: Empresa X'
                     }
                     value={formData.party_name}
                     onChange={(e) => setFormData({ ...formData, party_name: e.target.value })}
@@ -483,10 +542,12 @@ export default function BillsPage() {
                     className="bg-gray-800 border-gray-700 text-white rounded-xl"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300">Valor</Label>
                   <Input
                     type="number"
+                    step="0.01"
                     placeholder="0.00"
                     value={formData.amount}
                     onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
@@ -494,6 +555,7 @@ export default function BillsPage() {
                     className="bg-gray-800 border-gray-700 text-white rounded-xl"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300">Método de Pagamento</Label>
                   <Select
@@ -511,6 +573,7 @@ export default function BillsPage() {
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300">Data de Vencimento</Label>
                   <Input
@@ -522,6 +585,7 @@ export default function BillsPage() {
                   />
                 </div>
               </div>
+
               <div className="space-y-2">
                 <Label className="text-gray-300">Descrição</Label>
                 <Input
@@ -531,6 +595,7 @@ export default function BillsPage() {
                   className="bg-gray-800 border-gray-700 text-white rounded-xl"
                 />
               </div>
+
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -543,6 +608,7 @@ export default function BillsPage() {
                   Recorrente
                 </Label>
               </div>
+
               {formData.is_recurring && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="space-y-2">
@@ -564,6 +630,7 @@ export default function BillsPage() {
                       </SelectContent>
                     </Select>
                   </div>
+
                   <div className="space-y-2">
                     <Label className="text-gray-300">Quantidade</Label>
                     <Input
@@ -576,6 +643,7 @@ export default function BillsPage() {
                       className="bg-gray-800 border-gray-700 text-white rounded-xl"
                     />
                   </div>
+
                   <div className="space-y-2">
                     <Label className="text-gray-300">Data Final</Label>
                     <Input
@@ -589,6 +657,7 @@ export default function BillsPage() {
                   </div>
                 </div>
               )}
+
               <div className="flex gap-3">
                 <Button
                   type="submit"
@@ -603,9 +672,10 @@ export default function BillsPage() {
                       ? 'Atualizar'
                       : 'Adicionar'}
                 </Button>
+
                 <Button
                   type="button"
-                  onClick={() => resetForm()}
+                  onClick={resetForm}
                   className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-6 py-3 rounded-xl"
                 >
                   Cancelar
@@ -615,7 +685,6 @@ export default function BillsPage() {
           </div>
         )}
 
-        {/* Bills List */}
         <div className="space-y-4">
           {bills.length === 0 ? (
             <div className="bg-gray-900 rounded-2xl border border-gray-800 p-12 text-center">
@@ -634,24 +703,37 @@ export default function BillsPage() {
                       (activeTab === 'payable' ? bill.supplier_name : bill.client_name) ||
                       'Conta'}
                   </h3>
+
                   {(bill.supplier_name || bill.client_name) && (
                     <p className="text-gray-500 text-sm">
                       {activeTab === 'payable' ? bill.supplier_name : bill.client_name}
                     </p>
                   )}
+
                   <p className="text-gray-400 text-sm">
                     Vencimento: {new Date(bill.due_date).toLocaleDateString('pt-BR')}
                   </p>
+
                   {bill.is_recurring && (
-                    <p className="text-amber-600 text-sm">Recorrente: {bill.recurrence_interval}</p>
+                    <p className="text-amber-600 text-sm">
+                      Recorrente: {bill.recurrence_interval}
+                    </p>
                   )}
                 </div>
+
                 <div className="flex items-center gap-6">
                   <span
-                    className={`text-2xl font-bold ${bill.status === 'paid' ? 'text-green-500' : bill.status === 'overdue' ? 'text-orange-500' : 'text-red-500'}`}
+                    className={`text-2xl font-bold ${
+                      bill.status === 'paid'
+                        ? 'text-green-500'
+                        : bill.status === 'overdue'
+                          ? 'text-orange-500'
+                          : 'text-red-500'
+                    }`}
                   >
                     {formatCurrency(bill.amount, currency)}
                   </span>
+
                   <span
                     className={`px-3 py-1 rounded-full text-sm font-medium ${
                       bill.status === 'paid'
@@ -667,6 +749,7 @@ export default function BillsPage() {
                         ? 'Vencido'
                         : 'Pendente'}
                   </span>
+
                   <Button
                     size="sm"
                     onClick={() => handleEdit(bill)}
@@ -674,18 +757,20 @@ export default function BillsPage() {
                   >
                     <Edit className="w-4 h-4" />
                   </Button>
+
                   {(bill.status === 'pending' || bill.status === 'overdue') && (
                     <Button
                       size="sm"
-                      onClick={() => handleMarkAsPaid(bill.id)}
+                      onClick={() => void handleMarkAsPaid(bill.id)}
                       className="bg-green-600/20 hover:bg-green-600/30 text-green-400 border border-green-600/30 rounded-lg"
                     >
                       <CheckCircle2 className="w-4 h-4" />
                     </Button>
                   )}
+
                   <Button
                     size="sm"
-                    onClick={() => handleDelete(bill.id)}
+                    onClick={() => void handleDelete(bill.id)}
                     className="bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 rounded-lg"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -701,7 +786,7 @@ export default function BillsPage() {
 }
 
 function buildRecurringBills(
-  baseData: Record<string, any>,
+  baseData: Record<string, unknown>,
   formData: {
     due_date: string
     is_recurring: boolean
@@ -710,7 +795,7 @@ function buildRecurringBills(
     recurrence_end_date: string
   },
 ) {
-  const base: Record<string, any> & { status: AccountStatus } = {
+  const base = {
     ...baseData,
     status: 'pending' as const,
   }
@@ -725,12 +810,14 @@ function buildRecurringBills(
 
   if (count > 0) {
     let current = formData.due_date
+
     for (let i = 0; i < count; i += 1) {
       dates.push(current)
       current = addInterval(current, formData.recurrence_interval)
     }
   } else if (endDate) {
     let current = formData.due_date
+
     while (current <= endDate) {
       dates.push(current)
       current = addInterval(current, formData.recurrence_interval)
@@ -739,7 +826,10 @@ function buildRecurringBills(
     dates.push(formData.due_date)
   }
 
-  return dates.map((date) => ({ ...base, due_date: date }))
+  return dates.map((date) => ({
+    ...base,
+    due_date: date,
+  }))
 }
 
 function addInterval(dateStr: string, interval: string) {
@@ -765,6 +855,7 @@ function addInterval(dateStr: string, interval: string) {
   const yyyy = date.getFullYear()
   const mm = String(date.getMonth() + 1).padStart(2, '0')
   const dd = String(date.getDate()).padStart(2, '0')
+
   return `${yyyy}-${mm}-${dd}`
 }
 
