@@ -23,7 +23,6 @@ function useAuth(): UseAuthReturn {
   useEffect(() => {
     let active = true
 
-    // Se Supabase não estiver configurado, devolve estados “vazios” e funções no-op
     if (!supabase) {
       setUser(null)
       setSession(null)
@@ -31,8 +30,16 @@ function useAuth(): UseAuthReturn {
       return
     }
 
-    supabase.auth.getSession().then(({ data }) => {
+    void supabase.auth.getSession().then(({ data, error }) => {
       if (!active) return
+      if (error) {
+        console.error('Erro ao obter sessão:', error)
+        setSession(null)
+        setUser(null)
+        setLoading(false)
+        return
+      }
+
       setSession(data.session ?? null)
       setUser(data.session?.user ?? null)
       setLoading(false)
@@ -52,19 +59,22 @@ function useAuth(): UseAuthReturn {
   }, [])
 
   const loginWithEmail = useCallback(async (email: string, password: string) => {
-    if (!supabase) return
+    if (!supabase) throw new Error('Supabase não configurado')
+
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
   }, [])
 
   const signUpWithEmail = useCallback(async (email: string, password: string) => {
-    if (!supabase) return
+    if (!supabase) throw new Error('Supabase não configurado')
+
     const { error } = await supabase.auth.signUp({ email, password })
     if (error) throw error
   }, [])
 
   const logout = useCallback(async () => {
-    if (!supabase) return
+    if (!supabase) throw new Error('Supabase não configurado')
+
     const { error } = await supabase.auth.signOut()
     if (error) throw error
   }, [])
