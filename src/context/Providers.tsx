@@ -1,7 +1,12 @@
-"use client";
+'use client'
 
-import { TransactionsProvider } from "./TransactionsContext";
+import type { ReactNode } from 'react'
+import { TransactionsProvider } from '@/context/TransactionsContext'
 
-export function Providers({ children }: { children: React.ReactNode }) {
-  return <TransactionsProvider>{children}</TransactionsProvider>;
+interface ProvidersProps {
+  children: ReactNode
+}
+
+export default function Providers({ children }: ProvidersProps) {
+  return <TransactionsProvider>{children}</TransactionsProvider>
 }
