@@ -3,9 +3,19 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import useAuth from '@/hooks/useAuth'
+import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
-import { Menu, X, BarChart3, FileText, DollarSign, Calendar, Target, LogOut, Settings } from 'lucide-react'
+import {
+  Menu,
+  X,
+  BarChart3,
+  FileText,
+  DollarSign,
+  Calendar,
+  Target,
+  LogOut,
+  Settings,
+} from 'lucide-react'
 
 export function Navigation() {
   const { logout } = useAuth()
@@ -20,6 +30,11 @@ export function Navigation() {
     { href: '/goals', label: 'Metas', icon: Target },
     { href: '/onboarding', label: 'Perfil', icon: Settings },
   ]
+
+  const handleLogout = async () => {
+    setIsOpen(false)
+    await logout()
+  }
 
   return (
     <nav className="bg-gray-900 text-gray-200 shadow-lg border-b border-gray-800 sticky top-0 z-50">
@@ -36,6 +51,7 @@ export function Navigation() {
                 priority
               />
             </div>
+
             <div className="hidden sm:block">
               <p className="font-bold text-lg text-white">
                 Assistente<span className="text-amber-600">Pro</span>
@@ -59,7 +75,7 @@ export function Navigation() {
 
           <div className="hidden md:flex items-center gap-2">
             <Button
-              onClick={logout}
+              onClick={() => void handleLogout()}
               variant="outline"
               className="border border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-amber-600 hover:border-amber-600/50 transition-all"
             >
@@ -69,8 +85,10 @@ export function Navigation() {
           </div>
 
           <button
+            type="button"
+            aria-label={isOpen ? 'Fechar menu' : 'Abrir menu'}
             className="md:hidden text-gray-400 hover:text-amber-600 transition-colors"
-            onClick={() => setIsOpen(!isOpen)}
+            onClick={() => setIsOpen((prev) => !prev)}
           >
             {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
@@ -89,8 +107,10 @@ export function Navigation() {
                 {label}
               </Link>
             ))}
+
             <button
-              onClick={logout}
+              type="button"
+              onClick={() => void handleLogout()}
               className="w-full text-left px-4 py-3 text-sm text-gray-400 hover:text-amber-600 hover:bg-gray-800/50 rounded transition-all flex items-center gap-2"
             >
               <LogOut className="w-4 h-4" />
