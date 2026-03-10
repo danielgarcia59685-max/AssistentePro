@@ -16,14 +16,15 @@ import { supabase } from '@/lib/supabase'
 
 export default function OnboardingPage() {
   const router = useRouter()
+
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
   const [formData, setFormData] = useState({
     name: '',
     timezone: 'America/Sao_Paulo',
     currency: 'BRL',
   })
-  const [error, setError] = useState('')
 
   useEffect(() => {
     const init = async () => {
@@ -33,28 +34,38 @@ export default function OnboardingPage() {
         return
       }
 
-      const { data } = await supabase.auth.getSession()
-      if (!data.session?.user) {
-        router.push('/login')
-        return
+      try {
+        const { data: sessionData } = await supabase.auth.getSession()
+        const user = sessionData.session?.user
+
+        if (!user) {
+          router.push('/login')
+          return
+        }
+
+        const { data: profile, error: profileError } = await supabase
+          .from('users')
+          .select('name, timezone, currency')
+          .eq('id', user.id)
+          .maybeSingle()
+
+        if (profileError) {
+          console.error('Erro ao buscar perfil:', profileError)
+        }
+
+        if (profile) {
+          setFormData({
+            name: profile.name || '',
+            timezone: profile.timezone || 'America/Sao_Paulo',
+            currency: profile.currency || 'BRL',
+          })
+        }
+      } catch (err: any) {
+        console.error('Erro no onboarding:', err)
+        setError(err?.message || 'Erro ao carregar perfil')
+      } finally {
+        setLoading(false)
       }
-
-      const userId = data.session.user.id
-      const { data: profile } = await supabase
-        .from('users')
-        .select('name, timezone, currency')
-        .eq('id', userId)
-        .single()
-
-      if (profile) {
-        setFormData({
-          name: profile.name || '',
-          timezone: profile.timezone || 'America/Sao_Paulo',
-          currency: profile.currency || 'BRL',
-        })
-      }
-
-      setLoading(false)
     }
 
     init()
@@ -75,27 +86,38 @@ export default function OnboardingPage() {
     }
 
     setSaving(true)
+
     try {
-      const { data } = await supabase.auth.getSession()
-      if (!data.session?.user) {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const user = sessionData.session?.user
+
+      if (!user) {
         router.push('/login')
         return
       }
 
-      const userId = data.session.user.id
+      const email = user.email || `${user.id}@local`
+      const name = formData.name.trim()
+
       await supabase
         .from('users')
-        .update({
-          name: formData.name.trim(),
-          timezone: formData.timezone,
-          currency: formData.currency,
-        })
-        .eq('id', userId)
+        .upsert([
+          {
+            id: user.id,
+            email,
+            name,
+            timezone: formData.timezone,
+            currency: formData.currency,
+            updated_at: new Date().toISOString(),
+          },
+        ])
+        .throwOnError()
 
       localStorage.setItem('onboarding_complete', '1')
       router.push('/dashboard')
     } catch (err: any) {
-      setError(err.message || 'Erro ao salvar')
+      console.error('Erro ao salvar onboarding:', err)
+      setError(err?.message || 'Erro ao salvar')
     } finally {
       setSaving(false)
     }
