@@ -1,8 +1,8 @@
 'use client'
 
-import React from 'react'
-import { TransactionsProvider } from '../context/TransactionsContext' // pode ser este ou '@/...'
+import type { ReactNode } from 'react'
+import { TransactionsProvider } from '@/context/TransactionsContext'
 
-export default function Providers({ children }: { children: React.ReactNode }) {
+export default function Providers({ children }: { children: ReactNode }) {
   return <TransactionsProvider>{children}</TransactionsProvider>
 }
