@@ -23,7 +23,6 @@ function useAuth(): UseAuthReturn {
   useEffect(() => {
     let active = true
 
-    // Se Supabase não estiver configurado, devolve estados “vazios” e funções no-op
     if (!supabase) {
       setUser(null)
       setSession(null)
@@ -65,8 +64,11 @@ function useAuth(): UseAuthReturn {
 
   const logout = useCallback(async () => {
     if (!supabase) return
+
     const { error } = await supabase.auth.signOut()
     if (error) throw error
+
+    window.location.href = '/login'
   }, [])
 
   return {
