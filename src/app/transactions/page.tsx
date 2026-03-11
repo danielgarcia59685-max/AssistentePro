@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Edit, Trash2, Plus } from 'lucide-react'
+import { Edit, Trash2, Plus, Search, SlidersHorizontal, X } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -37,6 +37,44 @@ interface Transaction {
   payment_method: string
 }
 
+function getLocalDateString() {
+  const now = new Date()
+  const offset = now.getTimezoneOffset()
+  const localDate = new Date(now.getTime() - offset * 60 * 1000)
+  return localDate.toISOString().split('T')[0]
+}
+
+function normalizeDateOnly(value?: string | null) {
+  if (!value) return ''
+  const str = String(value).trim()
+
+  if (str.includes('T')) return str.split('T')[0]
+  if (str.includes(' ')) return str.split(' ')[0]
+  if (str.includes('/')) {
+    const parts = str.split('/')
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`
+      }
+      if (parts[2].length === 4) {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
+      }
+    }
+  }
+
+  return str.slice(0, 10).replace(/\//g, '-')
+}
+
+function formatDateBR(dateString?: string | null) {
+  const onlyDate = normalizeDateOnly(dateString)
+  if (!onlyDate) return '-'
+
+  const [year, month, day] = onlyDate.split('-')
+  if (!year || !month || !day) return onlyDate
+
+  return `${day}/${month}/${year}`
+}
+
 export default function TransactionsPage() {
   return (
     <Suspense fallback={<div className="min-h-screen bg-black" />}>
@@ -49,8 +87,10 @@ function TransactionsContent() {
   const { userId, loading: authLoading } = useAuth()
   const searchParams = useSearchParams()
   const initializedFromQuery = useRef(false)
+
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [showForm, setShowForm] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [categoryFilter, setCategoryFilter] = useState('')
   const [search, setSearch] = useState('')
@@ -65,7 +105,7 @@ function TransactionsContent() {
     type: 'expense' as 'income' | 'expense',
     category: '',
     description: '',
-    date: new Date().toISOString().split('T')[0],
+    date: getLocalDateString(),
     payment_method: 'cash',
   })
 
@@ -76,9 +116,10 @@ function TransactionsContent() {
       const monthNumber = Number(monthStr)
       if (!year || !monthNumber) return { start: null, end: null }
       const lastDay = new Date(year, monthNumber, 0).getDate()
-      const start = `${yearStr}-${monthStr}-01`
-      const end = `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`
-      return { start, end }
+      return {
+        start: `${yearStr}-${monthStr}-01`,
+        end: `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`,
+      }
     }
 
     return {
@@ -137,7 +178,6 @@ function TransactionsContent() {
 
   const fetchTransactions = async () => {
     if (!supabase || !userId) {
-      console.warn('Supabase não está configurado')
       toast({ title: 'Erro', description: 'Supabase não configurado', variant: 'destructive' })
       return
     }
@@ -149,32 +189,27 @@ function TransactionsContent() {
         .eq('user_id', userId)
         .order('date', { ascending: false })
 
-      if (typeFilter !== 'all') {
-        query = query.eq('type', typeFilter)
-      }
-
-      if (dateRange.start) {
-        query = query.gte('date', dateRange.start)
-      }
-
-      if (dateRange.end) {
-        query = query.lte('date', dateRange.end)
-      }
+      if (typeFilter !== 'all') query = query.eq('type', typeFilter)
+      if (dateRange.start) query = query.gte('date', dateRange.start)
+      if (dateRange.end) query = query.lte('date', dateRange.end)
 
       const { data, error } = await query
 
       if (error) {
-        console.error('Erro ao buscar transações:', error)
         toast({
           title: 'Erro',
           description: error.message || 'Falha ao buscar transações',
           variant: 'destructive',
         })
       } else {
-        setTransactions((data || []) as Transaction[])
+        setTransactions(
+          ((data || []) as Transaction[]).map((item) => ({
+            ...item,
+            date: normalizeDateOnly(item.date),
+          })),
+        )
       }
-    } catch (error) {
-      console.error('Erro ao buscar transações:', error)
+    } catch {
       toast({ title: 'Erro', description: 'Falha ao buscar transações', variant: 'destructive' })
     }
   }
@@ -201,7 +236,7 @@ function TransactionsContent() {
     }
 
     return rows
-  }, [transactions, categoryFilter, search])
+  }, [transactions, categoryFilter, search, categoriesMap])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -211,76 +246,41 @@ function TransactionsContent() {
     }
 
     try {
+      const payloadBase = {
+        amount: parseFloat(formData.amount),
+        type: formData.type,
+        category: formData.category,
+        description: formData.description,
+        date: normalizeDateOnly(formData.date),
+        payment_method: formData.payment_method,
+      }
+
       if (editingId) {
-        // Atualizar transação existente
         const updateResult = await supabase
           .from('transactions')
-          .update({
-            amount: parseFloat(formData.amount),
-            type: formData.type,
-            category: formData.category,
-            description: formData.description,
-            date: formData.date,
-            payment_method: formData.payment_method,
-          })
+          .update(payloadBase)
           .eq('id', editingId)
 
         if (updateResult.error) {
-          if (isMissingColumnError(updateResult.error, 'category')) {
-            const categoryId = await getOrCreateCategory(formData.category, formData.type)
-            await supabase
-              .from('transactions')
-              .update({
-                amount: parseFloat(formData.amount),
-                type: formData.type,
-                category_id: categoryId,
-                description: formData.description,
-                date: formData.date,
-                payment_method: formData.payment_method,
-              })
-              .eq('id', editingId)
-          } else {
-            throw updateResult.error
-          }
+          throw updateResult.error
         }
       } else {
-        // Inserir nova transação
         const insertResult = await supabase.from('transactions').insert([
           {
             user_id: userId,
-            amount: parseFloat(formData.amount),
-            type: formData.type,
-            category: formData.category,
-            description: formData.description,
-            date: formData.date,
-            payment_method: formData.payment_method,
+            ...payloadBase,
           },
         ])
 
         if (insertResult.error) {
-          if (isMissingColumnError(insertResult.error, 'category')) {
-            const categoryId = await getOrCreateCategory(formData.category, formData.type)
-            await supabase.from('transactions').insert([
-              {
-                user_id: userId,
-                amount: parseFloat(formData.amount),
-                type: formData.type,
-                category_id: categoryId,
-                description: formData.description,
-                date: formData.date,
-                payment_method: formData.payment_method,
-              },
-            ])
-          } else {
-            throw insertResult.error
-          }
+          throw insertResult.error
         }
       }
 
       resetForm()
       fetchTransactions()
+      toast({ title: 'Sucesso', description: 'Transação salva com sucesso' })
     } catch (error: any) {
-      console.error('Erro ao salvar transação:', error)
       toast({
         title: 'Erro',
         description: error?.message || 'Falha ao salvar transação',
@@ -295,7 +295,7 @@ function TransactionsContent() {
       type: 'expense',
       category: '',
       description: '',
-      date: new Date().toISOString().split('T')[0],
+      date: getLocalDateString(),
       payment_method: 'cash',
     })
     setEditingId(null)
@@ -308,8 +308,8 @@ function TransactionsContent() {
     try {
       await supabase.from('transactions').delete().eq('id', id)
       fetchTransactions()
-    } catch (err) {
-      console.error('Erro ao deletar transação:', err)
+    } catch {
+      //
     }
   }
 
@@ -319,54 +319,21 @@ function TransactionsContent() {
       type: transaction.type,
       category: getCategoryName(transaction) || '',
       description: transaction.description,
-      date: transaction.date.split('T')[0],
+      date: normalizeDateOnly(transaction.date),
       payment_method: transaction.payment_method,
     })
     setEditingId(transaction.id)
     setShowForm(true)
   }
 
-  const getOrCreateCategory = async (name: string, type: 'income' | 'expense') => {
-    if (!name.trim() || !supabase || !userId) return null
-    try {
-      const { data: existing } = await supabase
-        .from('categories')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('name', name.trim())
-        .eq('type', type)
-        .single()
-
-      if (existing?.id) return existing.id
-
-      const { data: created } = await supabase
-        .from('categories')
-        .insert([{ user_id: userId, name: name.trim(), type }])
-        .select('id')
-        .single()
-
-      return created?.id || null
-    } catch (error) {
-      console.warn('Categorias não disponíveis:', error)
-      return null
-    }
-  }
-
-  const isMissingColumnError = (error: any, column: string) => {
-    const message = (error?.message || '').toLowerCase()
-    return (
-      message.includes(`column \"${column}\"`) ||
-      message.includes(`column "${column}"`) ||
-      message.includes('does not exist')
-    )
-  }
+  const hasActiveFilters =
+    !!categoryFilter || typeFilter !== 'all' || !!month || !!startDate || !!endDate
 
   return (
     <div className="min-h-screen bg-black">
       <Navigation />
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-8 gap-4 flex-wrap">
           <div>
             <h1 className="text-4xl font-bold text-white mb-2">Transações</h1>
             <p className="text-gray-400">Histórico completo de todas as transações</p>
@@ -380,109 +347,130 @@ function TransactionsContent() {
           </Button>
         </div>
 
-        {/* Filters */}
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Categoria</Label>
+        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-4 mb-8">
+          <div className="flex flex-col md:flex-row gap-3 md:items-center">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <Input
-                placeholder="Ex: Barbearia, Loja, Pessoal"
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Pesquisar</Label>
-              <Input
-                placeholder="Descrição ou categoria"
+                placeholder="Pesquisar por descrição ou categoria"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                className="bg-gray-800 border-gray-700 rounded-xl pl-10 text-white placeholder:text-gray-500"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Mês</Label>
-              <Input
-                type="month"
-                value={month}
-                onChange={(e) => {
-                  setMonth(e.target.value)
-                  if (e.target.value) {
-                    setStartDate('')
-                    setEndDate('')
-                  }
-                }}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Tipo</Label>
-              <Select
-                value={typeFilter}
-                onValueChange={(value: 'all' | 'income' | 'expense') => setTypeFilter(value)}
-              >
-                <SelectTrigger className="bg-gray-800 border-gray-700 rounded-xl text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-gray-800 border-gray-700">
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="income">Receita</SelectItem>
-                  <SelectItem value="expense">Despesa</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-            <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Data inicial</Label>
-              <Input
-                type="date"
-                value={startDate}
-                onChange={(e) => {
-                  setStartDate(e.target.value)
-                  if (e.target.value) setMonth('')
-                }}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Data final</Label>
-              <Input
-                type="date"
-                value={endDate}
-                onChange={(e) => {
-                  setEndDate(e.target.value)
-                  if (e.target.value) setMonth('')
-                }}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
-              />
-            </div>
-          </div>
-          <div className="flex gap-3 mt-4">
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowFilters((prev) => !prev)}
+              className="border-gray-700 text-gray-300 hover:bg-gray-800"
+            >
+              <SlidersHorizontal className="w-4 h-4 mr-2" />
+              Filtros
+              {hasActiveFilters ? (
+                <span className="ml-2 inline-flex h-2 w-2 rounded-full bg-amber-500" />
+              ) : null}
+            </Button>
+
             <Button
               type="button"
               variant="outline"
               onClick={() => {
                 setCategoryFilter('')
-                setSearch('')
                 setTypeFilter('all')
                 setMonth('')
                 setStartDate('')
                 setEndDate('')
               }}
+              className="border-gray-700 text-gray-300 hover:bg-gray-800"
             >
-              Limpar filtros
+              <X className="w-4 h-4 mr-2" />
+              Limpar
             </Button>
           </div>
+
+          {showFilters && (
+            <div className="mt-4 border-t border-gray-800 pt-4">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                <div>
+                  <Label className="text-gray-300 text-sm mb-2 block">Categoria</Label>
+                  <Input
+                    placeholder="Ex: Barbearia"
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    className="bg-gray-800 border-gray-700 rounded-xl text-white placeholder:text-gray-500"
+                  />
+                </div>
+
+                <div>
+                  <Label className="text-gray-300 text-sm mb-2 block">Tipo</Label>
+                  <Select
+                    value={typeFilter}
+                    onValueChange={(value: 'all' | 'income' | 'expense') => setTypeFilter(value)}
+                  >
+                    <SelectTrigger className="bg-gray-800 border-gray-700 rounded-xl text-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-gray-800 border-gray-700">
+                      <SelectItem value="all">Todos</SelectItem>
+                      <SelectItem value="income">Receita</SelectItem>
+                      <SelectItem value="expense">Despesa</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label className="text-gray-300 text-sm mb-2 block">Mês</Label>
+                  <Input
+                    type="month"
+                    value={month}
+                    onChange={(e) => {
+                      setMonth(e.target.value)
+                      if (e.target.value) {
+                        setStartDate('')
+                        setEndDate('')
+                      }
+                    }}
+                    className="bg-gray-800 border-gray-700 rounded-xl text-white"
+                  />
+                </div>
+
+                <div>
+                  <Label className="text-gray-300 text-sm mb-2 block">Data inicial</Label>
+                  <Input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => {
+                      setStartDate(e.target.value)
+                      if (e.target.value) setMonth('')
+                    }}
+                    className="bg-gray-800 border-gray-700 rounded-xl text-white"
+                  />
+                </div>
+
+                <div>
+                  <Label className="text-gray-300 text-sm mb-2 block">Data final</Label>
+                  <Input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => {
+                      setEndDate(e.target.value)
+                      if (e.target.value) setMonth('')
+                    }}
+                    className="bg-gray-800 border-gray-700 rounded-xl text-white"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Form */}
         {showForm && (
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
             <h2 className="text-2xl font-bold text-white mb-6">
               {editingId ? 'Editar' : 'Adicionar'} Transação
             </h2>
+
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
@@ -494,9 +482,10 @@ function TransactionsContent() {
                     value={formData.amount}
                     onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                    className="bg-gray-800 border-gray-700 rounded-xl text-white"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Tipo</Label>
                   <Select
@@ -514,6 +503,7 @@ function TransactionsContent() {
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Categoria</Label>
                   <Input
@@ -521,9 +511,10 @@ function TransactionsContent() {
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                    className="bg-gray-800 border-gray-700 rounded-xl text-white"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Método de Pagamento</Label>
                   <Select
@@ -541,6 +532,7 @@ function TransactionsContent() {
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Data</Label>
                   <Input
@@ -548,23 +540,25 @@ function TransactionsContent() {
                     value={formData.date}
                     onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
+                    className="bg-gray-800 border-gray-700 rounded-xl text-white"
                   />
                 </div>
               </div>
+
               <div className="space-y-2">
                 <Label className="text-gray-300 font-semibold">Descrição</Label>
                 <Input
                   placeholder="Descrição da transação"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                  className="bg-gray-800 border-gray-700 rounded-xl text-white"
                 />
               </div>
+
               <div className="flex gap-3">
                 <Button
                   type="submit"
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl transition"
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl"
                 >
                   {editingId ? 'Atualizar' : 'Adicionar'}
                 </Button>
@@ -580,7 +574,6 @@ function TransactionsContent() {
           </div>
         )}
 
-        {/* Transactions Table */}
         <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
           <div className="overflow-x-auto">
             <Table>
@@ -608,7 +601,7 @@ function TransactionsContent() {
                       className="border-b border-gray-800 hover:bg-gray-800/30 transition"
                     >
                       <TableCell className="text-gray-300 py-4">
-                        {new Date(transaction.date).toLocaleDateString('pt-BR')}
+                        {formatDateBR(transaction.date)}
                       </TableCell>
                       <TableCell className="text-gray-300">{transaction.description}</TableCell>
                       <TableCell className="text-gray-300 capitalize">
@@ -631,7 +624,7 @@ function TransactionsContent() {
                             size="sm"
                             variant="outline"
                             onClick={() => handleEdit(transaction)}
-                            className="border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-amber-600 hover:border-amber-600/30 p-2 h-9 w-9"
+                            className="border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-amber-600 p-2 h-9 w-9"
                           >
                             <Edit className="w-4 h-4" />
                           </Button>
@@ -639,7 +632,7 @@ function TransactionsContent() {
                             size="sm"
                             variant="outline"
                             onClick={() => handleDelete(transaction.id)}
-                            className="border-gray-700 text-gray-400 hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/30 p-2 h-9 w-9"
+                            className="border-gray-700 text-gray-400 hover:bg-red-500/10 hover:text-red-500 p-2 h-9 w-9"
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
