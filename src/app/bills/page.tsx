@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
-import { FileText, Plus, Trash2, CheckCircle2, Edit } from 'lucide-react'
+import { FileText, Plus, Trash2, CheckCircle2, Edit, Search } from 'lucide-react'
 import { toast } from '@/hooks/useToast'
 
 type AccountStatus = 'pending' | 'paid' | 'overdue'
@@ -35,6 +35,45 @@ interface Bill {
   recurrence_end_date?: string | null
 }
 
+function getLocalDateString() {
+  const now = new Date()
+  const offset = now.getTimezoneOffset()
+  const localDate = new Date(now.getTime() - offset * 60 * 1000)
+  return localDate.toISOString().split('T')[0]
+}
+
+function normalizeDateOnly(value?: string | null) {
+  if (!value) return ''
+
+  const str = String(value).trim()
+
+  if (str.includes('T')) return str.split('T')[0]
+  if (str.includes(' ')) return str.split(' ')[0]
+  if (str.includes('/')) {
+    const parts = str.split('/')
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`
+      }
+      if (parts[2].length === 4) {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
+      }
+    }
+  }
+
+  return str.slice(0, 10).replace(/\//g, '-')
+}
+
+function formatDateBR(dateString?: string | null) {
+  const onlyDate = normalizeDateOnly(dateString)
+  if (!onlyDate) return '-'
+
+  const [year, month, day] = onlyDate.split('-')
+  if (!year || !month || !day) return onlyDate
+
+  return `${day}/${month}/${year}`
+}
+
 export default function BillsPage() {
   const router = useRouter()
   const { userId, loading: authLoading } = useAuth()
@@ -46,10 +85,11 @@ export default function BillsPage() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | AccountStatus>('all')
+  const [search, setSearch] = useState('')
   const [currency, setCurrency] = useState('BRL')
   const [formData, setFormData] = useState({
     amount: '',
-    due_date: new Date().toISOString().split('T')[0],
+    due_date: getLocalDateString(),
     description: '',
     party_name: '',
     payment_method: 'pix',
@@ -96,8 +136,7 @@ export default function BillsPage() {
   }
 
   const fetchBills = async () => {
-    if (!supabase) return
-    if (!userId) return
+    if (!supabase || !userId) return
 
     try {
       const table = activeTab === 'payable' ? 'accounts_payable' : 'accounts_receivable'
@@ -107,30 +146,29 @@ export default function BillsPage() {
         .eq('user_id', userId)
         .order('due_date', { ascending: true })
 
-      if (dateRange.start) {
-        query = query.gte('due_date', dateRange.start)
-      }
-
-      if (dateRange.end) {
-        query = query.lte('due_date', dateRange.end)
-      }
-
-      if (statusFilter !== 'all') {
-        query = query.eq('status', statusFilter as AccountStatus)
-      }
+      if (dateRange.start) query = query.gte('due_date', dateRange.start)
+      if (dateRange.end) query = query.lte('due_date', dateRange.end)
+      if (statusFilter !== 'all') query = query.eq('status', statusFilter as AccountStatus)
 
       const { data, error } = await query
 
       if (!error && data) {
-        const rows = data as unknown as Bill[]
+        const rows = (data as Bill[]).map((bill) => ({
+          ...bill,
+          due_date: normalizeDateOnly(bill.due_date),
+          recurrence_end_date: normalizeDateOnly(bill.recurrence_end_date),
+        }))
 
-        const today = new Date().toISOString().split('T')[0]
+        const today = getLocalDateString()
         const overdueIds = rows
-          .filter((bill) => bill.status === 'pending' && bill.due_date < today)
+          .filter((bill) => bill.status === 'pending' && normalizeDateOnly(bill.due_date) < today)
           .map((bill) => bill.id)
 
         if (overdueIds.length) {
-          await supabase.from(table).update({ status: 'overdue' as AccountStatus }).in('id', overdueIds)
+          await supabase
+            .from(table)
+            .update({ status: 'overdue' as AccountStatus })
+            .in('id', overdueIds)
         }
 
         const updatedData: Bill[] = rows.map((bill) =>
@@ -144,9 +182,33 @@ export default function BillsPage() {
     }
   }
 
+  const visibleBills = useMemo(() => {
+    let rows = [...bills]
+
+    if (search.trim()) {
+      const term = search.trim().toLowerCase()
+      rows = rows.filter((bill) => {
+        const title = (
+          bill.description ||
+          (activeTab === 'payable' ? bill.supplier_name : bill.client_name) ||
+          ''
+        ).toLowerCase()
+
+        const subtitle = (
+          activeTab === 'payable' ? bill.supplier_name || '' : bill.client_name || ''
+        ).toLowerCase()
+
+        return title.includes(term) || subtitle.includes(term)
+      })
+    }
+
+    return rows
+  }, [bills, search, activeTab])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!supabase) return
+
     const { data: sessionData } = await supabase.auth.getSession()
     if (!sessionData.session) {
       toast({
@@ -156,11 +218,11 @@ export default function BillsPage() {
       })
       return
     }
+
     const authUserId = sessionData.session.user.id
     const authEmail = sessionData.session.user.email || ''
     const fallbackName = authEmail ? authEmail.split('@')[0] : 'Usuário'
 
-    // Validação
     if (!formData.amount || isNaN(Number(formData.amount)) || Number(formData.amount) <= 0) {
       toast({
         title: 'Valor inválido',
@@ -169,6 +231,7 @@ export default function BillsPage() {
       })
       return
     }
+
     if (!formData.party_name || formData.party_name.trim().length === 0) {
       toast({
         title: 'Nome inválido',
@@ -177,6 +240,7 @@ export default function BillsPage() {
       })
       return
     }
+
     if (!formData.due_date) {
       toast({
         title: 'Data inválida',
@@ -185,6 +249,7 @@ export default function BillsPage() {
       })
       return
     }
+
     if (
       formData.is_recurring &&
       formData.recurrence_count &&
@@ -199,12 +264,18 @@ export default function BillsPage() {
     }
 
     setIsSubmitting(true)
+
     try {
       const table = activeTab === 'payable' ? 'accounts_payable' : 'accounts_receivable'
+      const normalizedDueDate = normalizeDateOnly(formData.due_date)
+      const normalizedRecurrenceEndDate = formData.recurrence_end_date
+        ? normalizeDateOnly(formData.recurrence_end_date)
+        : null
+
       const billData: Record<string, any> = {
         user_id: authUserId,
         amount: parseFloat(formData.amount),
-        due_date: formData.due_date,
+        due_date: normalizedDueDate,
         description: formData.description,
         payment_method: formData.payment_method,
         is_recurring: formData.is_recurring,
@@ -213,10 +284,7 @@ export default function BillsPage() {
           formData.is_recurring && formData.recurrence_count
             ? parseInt(formData.recurrence_count, 10)
             : null,
-        recurrence_end_date:
-          formData.is_recurring && formData.recurrence_end_date
-            ? formData.recurrence_end_date
-            : null,
+        recurrence_end_date: formData.is_recurring ? normalizedRecurrenceEndDate : null,
       }
 
       await supabase
@@ -239,7 +307,14 @@ export default function BillsPage() {
           .single()
           .throwOnError()
       } else {
-        const payloads = buildRecurringBills(billData, formData)
+        const payloads = buildRecurringBills(billData, {
+          due_date: normalizedDueDate,
+          is_recurring: formData.is_recurring,
+          recurrence_interval: formData.recurrence_interval,
+          recurrence_count: formData.recurrence_count,
+          recurrence_end_date: normalizedRecurrenceEndDate || '',
+        })
+
         await supabase.from(table).insert(payloads as any).throwOnError()
       }
 
@@ -262,7 +337,7 @@ export default function BillsPage() {
   const resetForm = () => {
     setFormData({
       amount: '',
-      due_date: new Date().toISOString().split('T')[0],
+      due_date: getLocalDateString(),
       description: '',
       party_name: '',
       payment_method: 'pix',
@@ -278,7 +353,7 @@ export default function BillsPage() {
   const handleEdit = (bill: Bill) => {
     setFormData({
       amount: bill.amount.toString(),
-      due_date: bill.due_date.split('T')[0],
+      due_date: normalizeDateOnly(bill.due_date),
       description: bill.description,
       party_name:
         activeTab === 'payable'
@@ -288,7 +363,7 @@ export default function BillsPage() {
       is_recurring: bill.is_recurring || false,
       recurrence_interval: bill.recurrence_interval || 'monthly',
       recurrence_count: bill.recurrence_count?.toString() || '',
-      recurrence_end_date: bill.recurrence_end_date || '',
+      recurrence_end_date: normalizeDateOnly(bill.recurrence_end_date),
     })
     setEditingId(bill.id)
     setShowForm(true)
@@ -313,8 +388,12 @@ export default function BillsPage() {
       const table = activeTab === 'payable' ? 'accounts_payable' : 'accounts_receivable'
       await supabase
         .from(table)
-        .update({ status: 'paid' as AccountStatus, payment_date: new Date().toISOString().split('T')[0] })
+        .update({
+          status: 'paid' as AccountStatus,
+          payment_date: getLocalDateString(),
+        })
         .eq('id', id)
+
       fetchBills()
     } catch (error) {
       console.error('Erro ao atualizar status:', error)
@@ -332,8 +411,7 @@ export default function BillsPage() {
     <div className="min-h-screen bg-black">
       <Navigation />
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-8 gap-4 flex-wrap">
           <div>
             <h1 className="text-4xl font-bold text-white mb-2">Contas</h1>
             <p className="text-gray-400">Gerenciamento de Contas a Pagar e Receber</p>
@@ -347,8 +425,7 @@ export default function BillsPage() {
           </Button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-4 mb-8 border-b border-gray-800">
+        <div className="flex gap-4 mb-6 border-b border-gray-800">
           {(['payable', 'receivable'] as const).map((tab) => (
             <button
               key={tab}
@@ -364,11 +441,23 @@ export default function BillsPage() {
           ))}
         </div>
 
-        {/* Filters */}
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="space-y-2">
-              <Label className="text-gray-300">Mês</Label>
+        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-4 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <div className="md:col-span-2">
+              <Label className="text-gray-300 text-sm mb-2 block">Pesquisar</Label>
+              <div className="relative">
+                <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Input
+                  placeholder="Buscar por descrição, fornecedor ou cliente"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="bg-gray-800 border-gray-700 text-white rounded-xl pl-10"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-gray-300 text-sm mb-2 block">Mês</Label>
               <Input
                 type="month"
                 value={month}
@@ -382,8 +471,9 @@ export default function BillsPage() {
                 className="bg-gray-800 border-gray-700 text-white rounded-xl"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-gray-300">Data inicial</Label>
+
+            <div>
+              <Label className="text-gray-300 text-sm mb-2 block">Data inicial</Label>
               <Input
                 type="date"
                 value={startDate}
@@ -394,20 +484,9 @@ export default function BillsPage() {
                 className="bg-gray-800 border-gray-700 text-white rounded-xl"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-gray-300">Data final</Label>
-              <Input
-                type="date"
-                value={endDate}
-                onChange={(e) => {
-                  setEndDate(e.target.value)
-                  if (e.target.value) setMonth('')
-                }}
-                className="bg-gray-800 border-gray-700 text-white rounded-xl"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-gray-300">Status</Label>
+
+            <div>
+              <Label className="text-gray-300 text-sm mb-2 block">Status</Label>
               <Select
                 value={statusFilter}
                 onValueChange={(value: 'all' | AccountStatus) => setStatusFilter(value)}
@@ -424,23 +503,40 @@ export default function BillsPage() {
               </Select>
             </div>
           </div>
-          <div className="flex gap-3 mt-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setMonth('')
-                setStartDate('')
-                setEndDate('')
-                setStatusFilter('all')
-              }}
-            >
-              Limpar filtros
-            </Button>
+
+          <div className="flex gap-3 mt-3 flex-wrap">
+            <div className="w-full md:w-56">
+              <Label className="text-gray-300 text-sm mb-2 block">Data final</Label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => {
+                  setEndDate(e.target.value)
+                  if (e.target.value) setMonth('')
+                }}
+                className="bg-gray-800 border-gray-700 text-white rounded-xl"
+              />
+            </div>
+
+            <div className="flex items-end gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setSearch('')
+                  setMonth('')
+                  setStartDate('')
+                  setEndDate('')
+                  setStatusFilter('all')
+                }}
+                className="border-gray-700 text-gray-300 hover:bg-gray-800"
+              >
+                Limpar filtros
+              </Button>
+            </div>
           </div>
         </div>
 
-        {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
             <p className="text-gray-400 text-sm mb-2">
@@ -464,7 +560,6 @@ export default function BillsPage() {
           </div>
         </div>
 
-        {/* Form */}
         {showForm && (
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -483,6 +578,7 @@ export default function BillsPage() {
                     className="bg-gray-800 border-gray-700 text-white rounded-xl"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300">Valor</Label>
                   <Input
@@ -494,6 +590,7 @@ export default function BillsPage() {
                     className="bg-gray-800 border-gray-700 text-white rounded-xl"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300">Método de Pagamento</Label>
                   <Select
@@ -511,6 +608,7 @@ export default function BillsPage() {
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300">Data de Vencimento</Label>
                   <Input
@@ -522,6 +620,7 @@ export default function BillsPage() {
                   />
                 </div>
               </div>
+
               <div className="space-y-2">
                 <Label className="text-gray-300">Descrição</Label>
                 <Input
@@ -531,6 +630,7 @@ export default function BillsPage() {
                   className="bg-gray-800 border-gray-700 text-white rounded-xl"
                 />
               </div>
+
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -543,6 +643,7 @@ export default function BillsPage() {
                   Recorrente
                 </Label>
               </div>
+
               {formData.is_recurring && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="space-y-2">
@@ -564,6 +665,7 @@ export default function BillsPage() {
                       </SelectContent>
                     </Select>
                   </div>
+
                   <div className="space-y-2">
                     <Label className="text-gray-300">Quantidade</Label>
                     <Input
@@ -576,6 +678,7 @@ export default function BillsPage() {
                       className="bg-gray-800 border-gray-700 text-white rounded-xl"
                     />
                   </div>
+
                   <div className="space-y-2">
                     <Label className="text-gray-300">Data Final</Label>
                     <Input
@@ -589,6 +692,7 @@ export default function BillsPage() {
                   </div>
                 </div>
               )}
+
               <div className="flex gap-3">
                 <Button
                   type="submit"
@@ -603,9 +707,10 @@ export default function BillsPage() {
                       ? 'Atualizar'
                       : 'Adicionar'}
                 </Button>
+
                 <Button
                   type="button"
-                  onClick={() => resetForm()}
+                  onClick={resetForm}
                   className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-6 py-3 rounded-xl"
                 >
                   Cancelar
@@ -615,15 +720,14 @@ export default function BillsPage() {
           </div>
         )}
 
-        {/* Bills List */}
         <div className="space-y-4">
-          {bills.length === 0 ? (
+          {visibleBills.length === 0 ? (
             <div className="bg-gray-900 rounded-2xl border border-gray-800 p-12 text-center">
               <FileText className="w-12 h-12 text-gray-600 mx-auto mb-4" />
               <p className="text-gray-400">Nenhuma conta registrada</p>
             </div>
           ) : (
-            bills.map((bill) => (
+            visibleBills.map((bill) => (
               <div
                 key={bill.id}
                 className="bg-gray-900 rounded-2xl border border-gray-800 p-6 flex items-center justify-between hover:border-gray-700 transition"
@@ -634,24 +738,35 @@ export default function BillsPage() {
                       (activeTab === 'payable' ? bill.supplier_name : bill.client_name) ||
                       'Conta'}
                   </h3>
+
                   {(bill.supplier_name || bill.client_name) && (
                     <p className="text-gray-500 text-sm">
                       {activeTab === 'payable' ? bill.supplier_name : bill.client_name}
                     </p>
                   )}
+
                   <p className="text-gray-400 text-sm">
-                    Vencimento: {new Date(bill.due_date).toLocaleDateString('pt-BR')}
+                    Vencimento: {formatDateBR(bill.due_date)}
                   </p>
+
                   {bill.is_recurring && (
                     <p className="text-amber-600 text-sm">Recorrente: {bill.recurrence_interval}</p>
                   )}
                 </div>
+
                 <div className="flex items-center gap-6">
                   <span
-                    className={`text-2xl font-bold ${bill.status === 'paid' ? 'text-green-500' : bill.status === 'overdue' ? 'text-orange-500' : 'text-red-500'}`}
+                    className={`text-2xl font-bold ${
+                      bill.status === 'paid'
+                        ? 'text-green-500'
+                        : bill.status === 'overdue'
+                          ? 'text-orange-500'
+                          : 'text-red-500'
+                    }`}
                   >
                     {formatCurrency(bill.amount, currency)}
                   </span>
+
                   <span
                     className={`px-3 py-1 rounded-full text-sm font-medium ${
                       bill.status === 'paid'
@@ -667,6 +782,7 @@ export default function BillsPage() {
                         ? 'Vencido'
                         : 'Pendente'}
                   </span>
+
                   <Button
                     size="sm"
                     onClick={() => handleEdit(bill)}
@@ -674,6 +790,7 @@ export default function BillsPage() {
                   >
                     <Edit className="w-4 h-4" />
                   </Button>
+
                   {(bill.status === 'pending' || bill.status === 'overdue') && (
                     <Button
                       size="sm"
@@ -683,6 +800,7 @@ export default function BillsPage() {
                       <CheckCircle2 className="w-4 h-4" />
                     </Button>
                   )}
+
                   <Button
                     size="sm"
                     onClick={() => handleDelete(bill.id)}
@@ -743,7 +861,7 @@ function buildRecurringBills(
 }
 
 function addInterval(dateStr: string, interval: string) {
-  const [year, month, day] = dateStr.split('-').map(Number)
+  const [year, month, day] = normalizeDateOnly(dateStr).split('-').map(Number)
   const date = new Date(year, month - 1, day)
 
   switch (interval) {
