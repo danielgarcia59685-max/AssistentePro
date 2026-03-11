@@ -35,6 +35,24 @@ interface Bill {
   recurrence_end_date?: string | null
 }
 
+function getLocalDateString() {
+  const now = new Date()
+  const offset = now.getTimezoneOffset()
+  const localDate = new Date(now.getTime() - offset * 60 * 1000)
+  return localDate.toISOString().split('T')[0]
+}
+
+function formatDateBR(dateString: string) {
+  if (!dateString) return '-'
+
+  const onlyDate = dateString.split('T')[0]
+  const [year, month, day] = onlyDate.split('-')
+
+  if (!year || !month || !day) return dateString
+
+  return `${day}/${month}/${year}`
+}
+
 export default function BillsPage() {
   const router = useRouter()
   const { userId, loading: authLoading } = useAuth()
@@ -49,7 +67,7 @@ export default function BillsPage() {
   const [currency, setCurrency] = useState('BRL')
   const [formData, setFormData] = useState({
     amount: '',
-    due_date: new Date().toISOString().split('T')[0],
+    due_date: getLocalDateString(),
     description: '',
     party_name: '',
     payment_method: 'pix',
@@ -83,6 +101,7 @@ export default function BillsPage() {
       router.push('/login')
       return
     }
+
     if (userId) {
       fetchProfileCurrency()
       fetchBills()
@@ -96,8 +115,7 @@ export default function BillsPage() {
   }
 
   const fetchBills = async () => {
-    if (!supabase) return
-    if (!userId) return
+    if (!supabase || !userId) return
 
     try {
       const table = activeTab === 'payable' ? 'accounts_payable' : 'accounts_receivable'
@@ -123,14 +141,17 @@ export default function BillsPage() {
 
       if (!error && data) {
         const rows = data as unknown as Bill[]
+        const today = getLocalDateString()
 
-        const today = new Date().toISOString().split('T')[0]
         const overdueIds = rows
-          .filter((bill) => bill.status === 'pending' && bill.due_date < today)
+          .filter((bill) => bill.status === 'pending' && bill.due_date.split('T')[0] < today)
           .map((bill) => bill.id)
 
         if (overdueIds.length) {
-          await supabase.from(table).update({ status: 'overdue' as AccountStatus }).in('id', overdueIds)
+          await supabase
+            .from(table)
+            .update({ status: 'overdue' as AccountStatus })
+            .in('id', overdueIds)
         }
 
         const updatedData: Bill[] = rows.map((bill) =>
@@ -147,7 +168,9 @@ export default function BillsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!supabase) return
+
     const { data: sessionData } = await supabase.auth.getSession()
+
     if (!sessionData.session) {
       toast({
         title: 'Sessão expirada',
@@ -156,11 +179,11 @@ export default function BillsPage() {
       })
       return
     }
+
     const authUserId = sessionData.session.user.id
     const authEmail = sessionData.session.user.email || ''
     const fallbackName = authEmail ? authEmail.split('@')[0] : 'Usuário'
 
-    // Validação
     if (!formData.amount || isNaN(Number(formData.amount)) || Number(formData.amount) <= 0) {
       toast({
         title: 'Valor inválido',
@@ -169,6 +192,7 @@ export default function BillsPage() {
       })
       return
     }
+
     if (!formData.party_name || formData.party_name.trim().length === 0) {
       toast({
         title: 'Nome inválido',
@@ -177,6 +201,7 @@ export default function BillsPage() {
       })
       return
     }
+
     if (!formData.due_date) {
       toast({
         title: 'Data inválida',
@@ -185,6 +210,7 @@ export default function BillsPage() {
       })
       return
     }
+
     if (
       formData.is_recurring &&
       formData.recurrence_count &&
@@ -199,8 +225,10 @@ export default function BillsPage() {
     }
 
     setIsSubmitting(true)
+
     try {
       const table = activeTab === 'payable' ? 'accounts_payable' : 'accounts_receivable'
+
       const billData: Record<string, any> = {
         user_id: authUserId,
         amount: parseFloat(formData.amount),
@@ -262,7 +290,7 @@ export default function BillsPage() {
   const resetForm = () => {
     setFormData({
       amount: '',
-      due_date: new Date().toISOString().split('T')[0],
+      due_date: getLocalDateString(),
       description: '',
       party_name: '',
       payment_method: 'pix',
@@ -288,7 +316,9 @@ export default function BillsPage() {
       is_recurring: bill.is_recurring || false,
       recurrence_interval: bill.recurrence_interval || 'monthly',
       recurrence_count: bill.recurrence_count?.toString() || '',
-      recurrence_end_date: bill.recurrence_end_date || '',
+      recurrence_end_date: bill.recurrence_end_date
+        ? bill.recurrence_end_date.split('T')[0]
+        : '',
     })
     setEditingId(bill.id)
     setShowForm(true)
@@ -313,8 +343,12 @@ export default function BillsPage() {
       const table = activeTab === 'payable' ? 'accounts_payable' : 'accounts_receivable'
       await supabase
         .from(table)
-        .update({ status: 'paid' as AccountStatus, payment_date: new Date().toISOString().split('T')[0] })
+        .update({
+          status: 'paid' as AccountStatus,
+          payment_date: getLocalDateString(),
+        })
         .eq('id', id)
+
       fetchBills()
     } catch (error) {
       console.error('Erro ao atualizar status:', error)
@@ -640,7 +674,7 @@ export default function BillsPage() {
                     </p>
                   )}
                   <p className="text-gray-400 text-sm">
-                    Vencimento: {new Date(bill.due_date).toLocaleDateString('pt-BR')}
+                    Vencimento: {formatDateBR(bill.due_date)}
                   </p>
                   {bill.is_recurring && (
                     <p className="text-amber-600 text-sm">Recorrente: {bill.recurrence_interval}</p>
@@ -648,7 +682,13 @@ export default function BillsPage() {
                 </div>
                 <div className="flex items-center gap-6">
                   <span
-                    className={`text-2xl font-bold ${bill.status === 'paid' ? 'text-green-500' : bill.status === 'overdue' ? 'text-orange-500' : 'text-red-500'}`}
+                    className={`text-2xl font-bold ${
+                      bill.status === 'paid'
+                        ? 'text-green-500'
+                        : bill.status === 'overdue'
+                          ? 'text-orange-500'
+                          : 'text-red-500'
+                    }`}
                   >
                     {formatCurrency(bill.amount, currency)}
                   </span>
