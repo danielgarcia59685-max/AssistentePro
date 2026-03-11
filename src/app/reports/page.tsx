@@ -51,8 +51,37 @@ function clamp2(n: number) {
   return Math.round(n * 100) / 100
 }
 
+function normalizeDateOnly(value?: string | null) {
+  if (!value) return ''
+  const str = String(value).trim()
+
+  if (str.includes('T')) return str.split('T')[0]
+  if (str.includes(' ')) return str.split(' ')[0]
+  if (str.includes('/')) {
+    const parts = str.split('/')
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`
+      }
+      if (parts[2].length === 4) {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
+      }
+    }
+  }
+
+  return str.slice(0, 10).replace(/\//g, '-')
+}
+
+function formatDateBR(dateString?: string | null) {
+  const onlyDate = normalizeDateOnly(dateString)
+  if (!onlyDate) return '-'
+  const [year, month, day] = onlyDate.split('-')
+  if (!year || !month || !day) return onlyDate
+  return `${day}/${month}/${year}`
+}
+
 function addOneYearBack(isoDate: string) {
-  const [y, m, d] = isoDate.split('-').map(Number)
+  const [y, m, d] = normalizeDateOnly(isoDate).split('-').map(Number)
   const dt = new Date(y - 1, (m || 1) - 1, d || 1)
   const yy = dt.getFullYear()
   const mm = String(dt.getMonth() + 1).padStart(2, '0')
@@ -61,13 +90,26 @@ function addOneYearBack(isoDate: string) {
 }
 
 function monthKeyFromISO(iso: string) {
-  return iso.slice(0, 7)
+  return normalizeDateOnly(iso).slice(0, 7)
 }
 
 function monthLabelPT(yyyyMm: string) {
   const [y, m] = yyyyMm.split('-').map(Number)
-  const dt = new Date(y, (m || 1) - 1, 1)
-  return dt.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })
+  const months = [
+    'jan',
+    'fev',
+    'mar',
+    'abr',
+    'mai',
+    'jun',
+    'jul',
+    'ago',
+    'set',
+    'out',
+    'nov',
+    'dez',
+  ]
+  return `${months[(m || 1) - 1]}/${y}`
 }
 
 function formatCompactBRL(n: number) {
@@ -78,25 +120,21 @@ function formatCompactBRL(n: number) {
 }
 
 function isValidISODate(s: string) {
-  // espera YYYY-MM-DD
   return /^\d{4}-\d{2}-\d{2}$/.test(s)
 }
 
 export default function ReportsPage() {
   const { userId, loading: authLoading } = useAuth()
 
-  // Draft (inputs)
   const [draftMonth, setDraftMonth] = useState('')
   const [draftStartDate, setDraftStartDate] = useState('')
   const [draftEndDate, setDraftEndDate] = useState('')
 
-  // Applied (used for queries)
   const [month, setMonth] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
 
   const [isLoading, setIsLoading] = useState(false)
-
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([])
   const [categoryData, setCategoryData] = useState<CategoryData[]>([])
   const [kpis, setKpis] = useState({ income: 0, expense: 0, balance: 0 })
@@ -109,7 +147,6 @@ export default function ReportsPage() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [categoryTx, setCategoryTx] = useState<TransactionRowEN[]>([])
   const [categoryTxLoading, setCategoryTxLoading] = useState(false)
-
   const [exportingPdf, setExportingPdf] = useState(false)
 
   const reportRef = useRef<HTMLDivElement | null>(null)
@@ -121,9 +158,10 @@ export default function ReportsPage() {
       const monthNumber = Number(monthStr)
       if (!year || !monthNumber) return { start: null, end: null }
       const lastDay = new Date(year, monthNumber, 0).getDate()
-      const start = `${yearStr}-${monthStr}-01`
-      const end = `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`
-      return { start, end }
+      return {
+        start: `${yearStr}-${monthStr}-01`,
+        end: `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`,
+      }
     }
     return { start: startDate || null, end: endDate || null }
   }, [month, startDate, endDate])
@@ -140,15 +178,15 @@ export default function ReportsPage() {
     if (draftMonth) return null
     if (draftStartDate && !isValidISODate(draftStartDate)) return 'Data inicial inválida'
     if (draftEndDate && !isValidISODate(draftEndDate)) return 'Data final inválida'
-    if (draftStartDate && draftEndDate && draftStartDate > draftEndDate) return 'Data inicial não pode ser maior que a data final'
+    if (draftStartDate && draftEndDate && draftStartDate > draftEndDate) {
+      return 'Data inicial não pode ser maior que a data final'
+    }
     return null
   }, [draftMonth, draftStartDate, draftEndDate])
 
   useEffect(() => {
-    if (authLoading || !userId) return
-    if (!supabase) return
+    if (authLoading || !userId || !supabase) return
     void refreshAll()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, userId, dateRange.start, dateRange.end])
 
   const refreshAll = async () => {
@@ -304,7 +342,9 @@ export default function ReportsPage() {
   }
 
   const bestAndWorst = useMemo(() => {
-    if (!monthlyData.length) return { best: null as MonthlyData | null, worst: null as MonthlyData | null }
+    if (!monthlyData.length) {
+      return { best: null as MonthlyData | null, worst: null as MonthlyData | null }
+    }
     const sorted = [...monthlyData].sort((a, b) => b.balance - a.balance)
     return { best: sorted[0], worst: sorted[sorted.length - 1] }
   }, [monthlyData])
@@ -333,7 +373,12 @@ export default function ReportsPage() {
       const { data, error } = await query.order('date', { ascending: false }).limit(200)
       if (error) throw error
 
-      setCategoryTx((data ?? []) as TransactionRowEN[])
+      setCategoryTx(
+        ((data ?? []) as TransactionRowEN[]).map((t) => ({
+          ...t,
+          date: normalizeDateOnly(t.date),
+        })),
+      )
     } catch (e) {
       console.error('Erro ao buscar transações da categoria:', e)
       setCategoryTx([])
@@ -349,7 +394,9 @@ export default function ReportsPage() {
 
   const filterLabel = useMemo(() => {
     if (month) return `Mês: ${month}`
-    if (dateRange.start || dateRange.end) return `Período: ${dateRange.start ?? '...'} até ${dateRange.end ?? '...'}`
+    if (dateRange.start || dateRange.end) {
+      return `Período: ${formatDateBR(dateRange.start)} até ${formatDateBR(dateRange.end)}`
+    }
     return 'Período: todos os registros'
   }, [month, dateRange.start, dateRange.end])
 
@@ -386,9 +433,11 @@ export default function ReportsPage() {
     setExportingPdf(true)
 
     try {
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf'),
+      ])
 
-      // força estilo estável (evita blur em alguns browsers)
       const canvas = await html2canvas(reportRef.current, {
         backgroundColor: '#000000',
         scale: 2,
@@ -396,7 +445,6 @@ export default function ReportsPage() {
       })
 
       const imgData = canvas.toDataURL('image/png')
-
       const pdf = new jsPDF({
         orientation: 'p',
         unit: 'mm',
@@ -405,8 +453,6 @@ export default function ReportsPage() {
 
       const pageWidth = pdf.internal.pageSize.getWidth()
       const pageHeight = pdf.internal.pageSize.getHeight()
-
-      // Ajuste proporcional
       const imgWidth = pageWidth
       const imgHeight = (canvas.height * imgWidth) / canvas.width
 
@@ -447,7 +493,6 @@ export default function ReportsPage() {
       <Navigation />
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Tudo que estiver dentro desse wrapper será “printado” no PDF */}
         <div ref={reportRef}>
           <div className="flex flex-col gap-3 mb-8">
             <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -477,17 +522,17 @@ export default function ReportsPage() {
           </div>
 
           <Card className="mb-8 bg-gray-900 border-gray-800">
-            <CardHeader>
+            <CardHeader className="pb-3">
               <CardTitle className="text-white flex items-center gap-2">
                 <Calendar className="w-5 h-5 text-amber-600" />
-                Filtros de Período
+                Filtros
               </CardTitle>
             </CardHeader>
 
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="space-y-2">
-                  <Label className="text-gray-300 font-medium">Mês específico</Label>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div>
+                  <Label className="text-gray-300 text-sm mb-2 block">Mês</Label>
                   <Input
                     type="month"
                     value={draftMonth}
@@ -499,13 +544,12 @@ export default function ReportsPage() {
                         setDraftEndDate('')
                       }
                     }}
-                    className="bg-gray-800 border-gray-700 text-white rounded-lg"
+                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
                   />
-                  <p className="text-xs text-gray-500">Se escolher mês, as datas são ignoradas.</p>
                 </div>
 
-                <div className="space-y-2">
-                  <Label className="text-gray-300 font-medium">Data inicial</Label>
+                <div>
+                  <Label className="text-gray-300 text-sm mb-2 block">Data inicial</Label>
                   <Input
                     type="date"
                     value={draftStartDate}
@@ -514,12 +558,12 @@ export default function ReportsPage() {
                       setDraftStartDate(v)
                       if (v) setDraftMonth('')
                     }}
-                    className="bg-gray-800 border-gray-700 text-white rounded-lg"
+                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label className="text-gray-300 font-medium">Data final</Label>
+                <div>
+                  <Label className="text-gray-300 text-sm mb-2 block">Data final</Label>
                   <Input
                     type="date"
                     value={draftEndDate}
@@ -528,13 +572,11 @@ export default function ReportsPage() {
                       setDraftEndDate(v)
                       if (v) setDraftMonth('')
                     }}
-                    className="bg-gray-800 border-gray-700 text-white rounded-lg"
+                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
                   />
                 </div>
-              </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-4 mt-6">
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-end gap-3">
                   <Button
                     type="button"
                     onClick={applyFilters}
@@ -554,7 +596,11 @@ export default function ReportsPage() {
                     <RotateCcw className="w-4 h-4 mr-2" />
                     Limpar
                   </Button>
+                </div>
+              </div>
 
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
+                <div>
                   {dateError ? <div className="text-sm text-red-400">{dateError}</div> : null}
                 </div>
 
@@ -808,14 +854,17 @@ export default function ReportsPage() {
           </section>
         </div>
 
-        {/* Modal - transações da categoria (não entra no PDF por estar fora do reportRef) */}
         {selectedCategory && (
           <div className="fixed inset-0 z-[999] flex items-center justify-center">
             <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={closeCategory} />
             <div className="relative w-[95vw] max-w-4xl max-h-[85vh] rounded-2xl border border-gray-800 bg-gray-900 shadow-2xl">
               <div className="flex items-center justify-between p-6 border-b border-gray-800">
                 <div className="text-xl font-bold text-white">Transações: {selectedCategory}</div>
-                <Button variant="outline" onClick={closeCategory} className="border-gray-700 text-gray-300 hover:bg-gray-800">
+                <Button
+                  variant="outline"
+                  onClick={closeCategory}
+                  className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                >
                   Fechar
                 </Button>
               </div>
@@ -847,14 +896,18 @@ export default function ReportsPage() {
                         className="flex items-start justify-between gap-4 rounded-xl border border-gray-800 bg-gray-950/30 px-4 py-4"
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="text-white font-medium mb-1 truncate">{t.description || 'Sem descrição'}</div>
+                          <div className="text-white font-medium mb-1 truncate">
+                            {t.description || 'Sem descrição'}
+                          </div>
                           <div className="text-xs text-gray-500 space-y-1">
-                            <div>📅 {new Date(t.date).toLocaleDateString('pt-BR')}</div>
+                            <div>📅 {formatDateBR(t.date)}</div>
                             <div>🏷️ {t.category || 'Outros'}</div>
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="text-lg font-bold text-red-400">- {formatCurrencyBRL(Number(t.amount || 0))}</div>
+                          <div className="text-lg font-bold text-red-400">
+                            - {formatCurrencyBRL(Number(t.amount || 0))}
+                          </div>
                         </div>
                       </div>
                     ))}
