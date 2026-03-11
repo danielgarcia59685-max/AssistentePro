@@ -29,9 +29,9 @@ export default function LoginPage() {
         setError('Supabase não configurado')
         return
       }
+
       const normalizedEmail = email.trim().toLowerCase()
 
-      // Fazer login via Supabase Auth
       const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
         email: normalizedEmail,
         password,
@@ -39,6 +39,7 @@ export default function LoginPage() {
 
       if (signInError || !signInData?.user) {
         const message = signInError?.message?.toLowerCase() || ''
+
         if (message.includes('confirm') || message.includes('not confirmed')) {
           setError(
             'Seu email ainda não foi confirmado. Verifique sua caixa de entrada ou reenvie a confirmação.',
@@ -52,7 +53,6 @@ export default function LoginPage() {
 
       const userId = signInData.user.id
 
-      // Garantir que exista um registro na tabela `users`
       const { data: profile } = await supabase
         .from('users')
         .select('id, email')
@@ -60,11 +60,14 @@ export default function LoginPage() {
         .single()
 
       if (!profile) {
-        // Criar perfil mínimo
         const fallbackName = normalizedEmail.split('@')[0] || 'Usuário'
-        await supabase
-          .from('users')
-          .insert([{ id: userId, email: normalizedEmail, name: fallbackName }])
+        await supabase.from('users').insert([
+          {
+            id: userId,
+            email: normalizedEmail,
+            name: fallbackName,
+          },
+        ])
       }
 
       localStorage.setItem('user_id', userId)
@@ -89,6 +92,7 @@ export default function LoginPage() {
     }
 
     const normalizedEmail = email.trim().toLowerCase()
+
     if (!normalizedEmail) {
       setError('Informe o email para reenviar a confirmação')
       return
@@ -100,7 +104,7 @@ export default function LoginPage() {
     })
 
     if (resendError) {
-      setError('Erro ao reenviar confirmação: ' + resendError.message)
+      setError(`Erro ao reenviar confirmação: ${resendError.message}`)
       return
     }
 
@@ -109,22 +113,20 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-black flex items-center justify-center p-4">
-      {/* Background effect - subtle gradient */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 right-20 w-96 h-96 bg-amber-600/5 blur-3xl rounded-full"></div>
-        <div className="absolute bottom-20 left-20 w-96 h-96 bg-amber-600/5 blur-3xl rounded-full"></div>
+        <div className="absolute top-20 right-20 w-96 h-96 bg-amber-600/5 blur-3xl rounded-full" />
+        <div className="absolute bottom-20 left-20 w-96 h-96 bg-amber-600/5 blur-3xl rounded-full" />
       </div>
 
-      {/* Login Card */}
       <div className="w-full max-w-md relative z-10">
         <div className="bg-gray-900 rounded-3xl border border-gray-800 p-8 shadow-2xl">
           {/* Logo */}
           <div className="flex justify-center mb-8">
-            <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-lg shadow-amber-600/20">
+            <div className="w-20 h-20 rounded-2xl overflow-hidden shadow-lg shadow-amber-600/20 bg-gray-900 flex items-center justify-center">
               <img
-                src="/assets/mark-assistentepro.svg"
+                src="/logo.png"
                 alt="AssistentePro"
-                className="w-full h-full object-cover"
+                className="w-full h-full object-contain"
               />
             </div>
           </div>
@@ -133,9 +135,7 @@ export default function LoginPage() {
           <h1 className="text-3xl font-bold text-white text-center mb-2">AssistentePro</h1>
           <p className="text-gray-400 text-center mb-8">assistente pessoal</p>
 
-          {/* Form */}
           <form onSubmit={handleLogin} className="space-y-6">
-            {/* Error Alert */}
             {error && (
               <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
@@ -143,7 +143,6 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* Info Alert */}
             {info && (
               <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4 flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
@@ -151,7 +150,6 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* Email Field */}
             <div className="space-y-3">
               <Label htmlFor="email" className="text-gray-300 font-medium">
                 Email
@@ -167,7 +165,6 @@ export default function LoginPage() {
               />
             </div>
 
-            {/* Password Field */}
             <div className="space-y-3">
               <Label htmlFor="password" className="text-gray-300 font-medium">
                 Senha
@@ -183,7 +180,6 @@ export default function LoginPage() {
               />
             </div>
 
-            {/* Login Button */}
             <Button
               type="submit"
               disabled={loading}
@@ -204,7 +200,6 @@ export default function LoginPage() {
               </Button>
             )}
 
-            {/* Sign Up Link */}
             <div className="text-center pt-4 border-t border-gray-800">
               <p className="text-gray-400 text-sm">
                 Não tem conta?{' '}
@@ -219,7 +214,6 @@ export default function LoginPage() {
           </form>
         </div>
 
-        {/* Footer */}
         <p className="text-center text-gray-500 text-xs mt-8">
           © 2026 AssistentePro. Todos os direitos reservados.
         </p>
