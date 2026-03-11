@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Edit, Trash2, Plus } from 'lucide-react'
+import { Edit, Trash2, Plus, Search } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -35,6 +35,44 @@ interface Transaction {
   description: string
   date: string
   payment_method: string
+}
+
+function getLocalDateString() {
+  const now = new Date()
+  const offset = now.getTimezoneOffset()
+  const localDate = new Date(now.getTime() - offset * 60 * 1000)
+  return localDate.toISOString().split('T')[0]
+}
+
+function normalizeDateOnly(value?: string | null) {
+  if (!value) return ''
+  const str = String(value).trim()
+
+  if (str.includes('T')) return str.split('T')[0]
+  if (str.includes(' ')) return str.split(' ')[0]
+  if (str.includes('/')) {
+    const parts = str.split('/')
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`
+      }
+      if (parts[2].length === 4) {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
+      }
+    }
+  }
+
+  return str.slice(0, 10).replace(/\//g, '-')
+}
+
+function formatDateBR(dateString?: string | null) {
+  const onlyDate = normalizeDateOnly(dateString)
+  if (!onlyDate) return '-'
+
+  const [year, month, day] = onlyDate.split('-')
+  if (!year || !month || !day) return onlyDate
+
+  return `${day}/${month}/${year}`
 }
 
 export default function TransactionsPage() {
@@ -65,7 +103,7 @@ function TransactionsContent() {
     type: 'expense' as 'income' | 'expense',
     category: '',
     description: '',
-    date: new Date().toISOString().split('T')[0],
+    date: getLocalDateString(),
     payment_method: 'cash',
   })
 
@@ -76,9 +114,10 @@ function TransactionsContent() {
       const monthNumber = Number(monthStr)
       if (!year || !monthNumber) return { start: null, end: null }
       const lastDay = new Date(year, monthNumber, 0).getDate()
-      const start = `${yearStr}-${monthStr}-01`
-      const end = `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`
-      return { start, end }
+      return {
+        start: `${yearStr}-${monthStr}-01`,
+        end: `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`,
+      }
     }
 
     return {
@@ -137,7 +176,6 @@ function TransactionsContent() {
 
   const fetchTransactions = async () => {
     if (!supabase || !userId) {
-      console.warn('Supabase não está configurado')
       toast({ title: 'Erro', description: 'Supabase não configurado', variant: 'destructive' })
       return
     }
@@ -149,17 +187,9 @@ function TransactionsContent() {
         .eq('user_id', userId)
         .order('date', { ascending: false })
 
-      if (typeFilter !== 'all') {
-        query = query.eq('type', typeFilter)
-      }
-
-      if (dateRange.start) {
-        query = query.gte('date', dateRange.start)
-      }
-
-      if (dateRange.end) {
-        query = query.lte('date', dateRange.end)
-      }
+      if (typeFilter !== 'all') query = query.eq('type', typeFilter)
+      if (dateRange.start) query = query.gte('date', dateRange.start)
+      if (dateRange.end) query = query.lte('date', dateRange.end)
 
       const { data, error } = await query
 
@@ -171,7 +201,12 @@ function TransactionsContent() {
           variant: 'destructive',
         })
       } else {
-        setTransactions((data || []) as Transaction[])
+        setTransactions(
+          ((data || []) as Transaction[]).map((item) => ({
+            ...item,
+            date: normalizeDateOnly(item.date),
+          })),
+        )
       }
     } catch (error) {
       console.error('Erro ao buscar transações:', error)
@@ -201,7 +236,7 @@ function TransactionsContent() {
     }
 
     return rows
-  }, [transactions, categoryFilter, search])
+  }, [transactions, categoryFilter, search, categoriesMap])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -211,18 +246,19 @@ function TransactionsContent() {
     }
 
     try {
+      const payloadBase = {
+        amount: parseFloat(formData.amount),
+        type: formData.type,
+        category: formData.category,
+        description: formData.description,
+        date: normalizeDateOnly(formData.date),
+        payment_method: formData.payment_method,
+      }
+
       if (editingId) {
-        // Atualizar transação existente
         const updateResult = await supabase
           .from('transactions')
-          .update({
-            amount: parseFloat(formData.amount),
-            type: formData.type,
-            category: formData.category,
-            description: formData.description,
-            date: formData.date,
-            payment_method: formData.payment_method,
-          })
+          .update(payloadBase)
           .eq('id', editingId)
 
         if (updateResult.error) {
@@ -235,7 +271,7 @@ function TransactionsContent() {
                 type: formData.type,
                 category_id: categoryId,
                 description: formData.description,
-                date: formData.date,
+                date: normalizeDateOnly(formData.date),
                 payment_method: formData.payment_method,
               })
               .eq('id', editingId)
@@ -244,16 +280,10 @@ function TransactionsContent() {
           }
         }
       } else {
-        // Inserir nova transação
         const insertResult = await supabase.from('transactions').insert([
           {
             user_id: userId,
-            amount: parseFloat(formData.amount),
-            type: formData.type,
-            category: formData.category,
-            description: formData.description,
-            date: formData.date,
-            payment_method: formData.payment_method,
+            ...payloadBase,
           },
         ])
 
@@ -267,7 +297,7 @@ function TransactionsContent() {
                 type: formData.type,
                 category_id: categoryId,
                 description: formData.description,
-                date: formData.date,
+                date: normalizeDateOnly(formData.date),
                 payment_method: formData.payment_method,
               },
             ])
@@ -279,6 +309,7 @@ function TransactionsContent() {
 
       resetForm()
       fetchTransactions()
+      toast({ title: 'Sucesso', description: 'Transação salva com sucesso' })
     } catch (error: any) {
       console.error('Erro ao salvar transação:', error)
       toast({
@@ -295,7 +326,7 @@ function TransactionsContent() {
       type: 'expense',
       category: '',
       description: '',
-      date: new Date().toISOString().split('T')[0],
+      date: getLocalDateString(),
       payment_method: 'cash',
     })
     setEditingId(null)
@@ -319,7 +350,7 @@ function TransactionsContent() {
       type: transaction.type,
       category: getCategoryName(transaction) || '',
       description: transaction.description,
-      date: transaction.date.split('T')[0],
+      date: normalizeDateOnly(transaction.date),
       payment_method: transaction.payment_method,
     })
     setEditingId(transaction.id)
@@ -355,8 +386,8 @@ function TransactionsContent() {
   const isMissingColumnError = (error: any, column: string) => {
     const message = (error?.message || '').toLowerCase()
     return (
-      message.includes(`column \"${column}\"`) ||
       message.includes(`column "${column}"`) ||
+      message.includes(`column \"${column}\"`) ||
       message.includes('does not exist')
     )
   }
@@ -365,8 +396,7 @@ function TransactionsContent() {
     <div className="min-h-screen bg-black">
       <Navigation />
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-8 gap-4 flex-wrap">
           <div>
             <h1 className="text-4xl font-bold text-white mb-2">Transações</h1>
             <p className="text-gray-400">Histórico completo de todas as transações</p>
@@ -380,29 +410,33 @@ function TransactionsContent() {
           </Button>
         </div>
 
-        {/* Filters */}
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Categoria</Label>
+        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-4 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <div className="md:col-span-2">
+              <Label className="text-gray-300 text-sm mb-2 block">Pesquisar</Label>
+              <div className="relative">
+                <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Input
+                  placeholder="Descrição ou categoria"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="bg-gray-800 border-gray-700 rounded-xl pl-10 text-white placeholder:text-gray-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-gray-300 text-sm mb-2 block">Categoria</Label>
               <Input
-                placeholder="Ex: Barbearia, Loja, Pessoal"
+                placeholder="Ex: Barbearia"
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                className="bg-gray-800 border-gray-700 rounded-xl text-white placeholder:text-gray-500"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Pesquisar</Label>
-              <Input
-                placeholder="Descrição ou categoria"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Mês</Label>
+
+            <div>
+              <Label className="text-gray-300 text-sm mb-2 block">Mês</Label>
               <Input
                 type="month"
                 value={month}
@@ -413,11 +447,12 @@ function TransactionsContent() {
                     setEndDate('')
                   }
                 }}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
+                className="bg-gray-800 border-gray-700 rounded-xl text-white"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Tipo</Label>
+
+            <div>
+              <Label className="text-gray-300 text-sm mb-2 block">Tipo</Label>
               <Select
                 value={typeFilter}
                 onValueChange={(value: 'all' | 'income' | 'expense') => setTypeFilter(value)}
@@ -433,9 +468,10 @@ function TransactionsContent() {
               </Select>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-            <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Data inicial</Label>
+
+          <div className="flex gap-3 mt-3 flex-wrap">
+            <div className="w-full md:w-56">
+              <Label className="text-gray-300 text-sm mb-2 block">Data inicial</Label>
               <Input
                 type="date"
                 value={startDate}
@@ -443,11 +479,12 @@ function TransactionsContent() {
                   setStartDate(e.target.value)
                   if (e.target.value) setMonth('')
                 }}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
+                className="bg-gray-800 border-gray-700 rounded-xl text-white"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Data final</Label>
+
+            <div className="w-full md:w-56">
+              <Label className="text-gray-300 text-sm mb-2 block">Data final</Label>
               <Input
                 type="date"
                 value={endDate}
@@ -455,29 +492,30 @@ function TransactionsContent() {
                   setEndDate(e.target.value)
                   if (e.target.value) setMonth('')
                 }}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
+                className="bg-gray-800 border-gray-700 rounded-xl text-white"
               />
             </div>
-          </div>
-          <div className="flex gap-3 mt-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setCategoryFilter('')
-                setSearch('')
-                setTypeFilter('all')
-                setMonth('')
-                setStartDate('')
-                setEndDate('')
-              }}
-            >
-              Limpar filtros
-            </Button>
+
+            <div className="flex items-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setCategoryFilter('')
+                  setSearch('')
+                  setTypeFilter('all')
+                  setMonth('')
+                  setStartDate('')
+                  setEndDate('')
+                }}
+                className="border-gray-700 text-gray-300 hover:bg-gray-800"
+              >
+                Limpar filtros
+              </Button>
+            </div>
           </div>
         </div>
 
-        {/* Form */}
         {showForm && (
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
             <h2 className="text-2xl font-bold text-white mb-6">
@@ -494,9 +532,10 @@ function TransactionsContent() {
                     value={formData.amount}
                     onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                    className="bg-gray-800 border-gray-700 rounded-xl text-white placeholder:text-gray-500"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Tipo</Label>
                   <Select
@@ -514,6 +553,7 @@ function TransactionsContent() {
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Categoria</Label>
                   <Input
@@ -521,9 +561,10 @@ function TransactionsContent() {
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                    className="bg-gray-800 border-gray-700 rounded-xl text-white placeholder:text-gray-500"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Método de Pagamento</Label>
                   <Select
@@ -541,6 +582,7 @@ function TransactionsContent() {
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Data</Label>
                   <Input
@@ -548,19 +590,21 @@ function TransactionsContent() {
                     value={formData.date}
                     onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
+                    className="bg-gray-800 border-gray-700 rounded-xl text-white"
                   />
                 </div>
               </div>
+
               <div className="space-y-2">
                 <Label className="text-gray-300 font-semibold">Descrição</Label>
                 <Input
                   placeholder="Descrição da transação"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                  className="bg-gray-800 border-gray-700 rounded-xl text-white placeholder:text-gray-500"
                 />
               </div>
+
               <div className="flex gap-3">
                 <Button
                   type="submit"
@@ -580,7 +624,6 @@ function TransactionsContent() {
           </div>
         )}
 
-        {/* Transactions Table */}
         <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
           <div className="overflow-x-auto">
             <Table>
@@ -608,7 +651,7 @@ function TransactionsContent() {
                       className="border-b border-gray-800 hover:bg-gray-800/30 transition"
                     >
                       <TableCell className="text-gray-300 py-4">
-                        {new Date(transaction.date).toLocaleDateString('pt-BR')}
+                        {formatDateBR(transaction.date)}
                       </TableCell>
                       <TableCell className="text-gray-300">{transaction.description}</TableCell>
                       <TableCell className="text-gray-300 capitalize">
