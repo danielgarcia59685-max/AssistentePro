@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
-import { Bell, Plus, Trash2, CheckCircle2, Clock, AlertCircle, Edit } from 'lucide-react'
+import { Bell, Plus, Trash2, CheckCircle2, Clock, Edit } from 'lucide-react'
 import { toast } from '@/hooks/useToast'
 
 interface Reminder {
@@ -25,6 +25,25 @@ interface Reminder {
   due_date: string
   status: 'pending' | 'completed'
   reminder_type: string
+  due_time?: string | null
+}
+
+function getLocalDateString() {
+  const now = new Date()
+  const offset = now.getTimezoneOffset()
+  const localDate = new Date(now.getTime() - offset * 60 * 1000)
+  return localDate.toISOString().split('T')[0]
+}
+
+function formatDateBR(dateString: string) {
+  if (!dateString) return '-'
+
+  const onlyDate = dateString.split('T')[0]
+  const [year, month, day] = onlyDate.split('-')
+
+  if (!year || !month || !day) return dateString
+
+  return `${day}/${month}/${year}`
 }
 
 export default function RemindersPage() {
@@ -40,7 +59,7 @@ export default function RemindersPage() {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    due_date: new Date().toISOString().split('T')[0],
+    due_date: getLocalDateString(),
     due_time: '',
     reminder_type: 'task',
   })
@@ -52,9 +71,11 @@ export default function RemindersPage() {
       const year = Number(yearStr)
       const monthNumber = Number(monthStr)
       if (!year || !monthNumber) return { start: null, end: null }
+
       const lastDay = new Date(year, monthNumber, 0).getDate()
       const start = `${yearStr}-${monthStr}-01`
       const end = `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`
+
       return { start, end }
     }
 
@@ -69,14 +90,14 @@ export default function RemindersPage() {
       router.push('/login')
       return
     }
+
     if (userId) {
       fetchReminders()
     }
   }, [userId, authLoading, router, dateRange.start, dateRange.end, statusFilter])
 
   const fetchReminders = async () => {
-    if (!supabase) return
-    if (!userId) return
+    if (!supabase || !userId) return
 
     try {
       let query = supabase
@@ -100,7 +121,7 @@ export default function RemindersPage() {
       const { data, error } = await query
 
       if (!error && data) {
-        setReminders(data)
+        setReminders(data as Reminder[])
       }
     } catch (error) {
       console.error('Erro ao buscar lembretes:', error)
@@ -110,7 +131,9 @@ export default function RemindersPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!supabase) return
+
     const { data: sessionData } = await supabase.auth.getSession()
+
     if (!sessionData.session) {
       toast({
         title: 'Sessão expirada',
@@ -119,11 +142,11 @@ export default function RemindersPage() {
       })
       return
     }
+
     const authUserId = sessionData.session.user.id
     const authEmail = sessionData.session.user.email || ''
     const fallbackName = authEmail ? authEmail.split('@')[0] : 'Usuário'
 
-    // Validação
     if (!formData.title || formData.title.trim().length === 0) {
       toast({
         title: 'Título inválido',
@@ -132,6 +155,7 @@ export default function RemindersPage() {
       })
       return
     }
+
     if (!formData.due_date) {
       toast({
         title: 'Data inválida',
@@ -140,9 +164,11 @@ export default function RemindersPage() {
       })
       return
     }
+
+    setIsSubmitting(true)
+
     try {
       if (editingId) {
-        // Atualizar lembrete
         const { error } = await supabase
           .from('reminders')
           .update({
@@ -153,6 +179,7 @@ export default function RemindersPage() {
             reminder_type: formData.reminder_type,
           })
           .eq('id', editingId)
+
         if (error) {
           console.error('Erro ao atualizar lembrete:', {
             message: (error as any)?.message,
@@ -162,6 +189,7 @@ export default function RemindersPage() {
             status: (error as any)?.status,
             raw: error,
           })
+
           toast({
             title: 'Erro',
             description: (error as any)?.message || 'Falha ao atualizar compromisso',
@@ -170,13 +198,13 @@ export default function RemindersPage() {
           return
         }
       } else {
-        // Inserir novo lembrete
         await supabase
           .from('users')
           .upsert([
             { id: authUserId, email: authEmail || `${authUserId}@local`, name: fallbackName },
           ])
           .throwOnError()
+
         const { error } = await supabase.from('reminders').insert([
           {
             ...formData,
@@ -185,6 +213,7 @@ export default function RemindersPage() {
             status: 'pending',
           },
         ])
+
         if (error) {
           console.error('Erro ao criar lembrete:', {
             message: (error as any)?.message,
@@ -194,6 +223,7 @@ export default function RemindersPage() {
             status: (error as any)?.status,
             raw: error,
           })
+
           toast({
             title: 'Erro',
             description: (error as any)?.message || 'Falha ao criar compromisso',
@@ -213,6 +243,8 @@ export default function RemindersPage() {
         description: 'Não foi possível salvar o compromisso',
         variant: 'destructive',
       })
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -220,7 +252,7 @@ export default function RemindersPage() {
     setFormData({
       title: '',
       description: '',
-      due_date: new Date().toISOString().split('T')[0],
+      due_date: getLocalDateString(),
       due_time: '',
       reminder_type: 'task',
     })
@@ -255,7 +287,7 @@ export default function RemindersPage() {
       title: reminder.title,
       description: reminder.description,
       due_date: reminder.due_date.split('T')[0],
-      due_time: (reminder as Reminder & { due_time?: string | null }).due_time || '',
+      due_time: reminder.due_time || '',
       reminder_type: reminder.reminder_type,
     })
     setEditingId(reminder.id)
@@ -264,6 +296,8 @@ export default function RemindersPage() {
 
   const pendingReminders = reminders.filter((r) => r.status === 'pending')
   const completedReminders = reminders.filter((r) => r.status === 'completed')
+  const today = getLocalDateString()
+  const upcomingCount = pendingReminders.filter((r) => r.due_date.split('T')[0] >= today).length
 
   return (
     <div className="min-h-screen bg-black">
@@ -300,9 +334,7 @@ export default function RemindersPage() {
           </div>
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
             <p className="text-gray-400 text-sm mb-2">Próximos</p>
-            <p className="text-3xl font-bold text-blue-500">
-              {pendingReminders.filter((r) => new Date(r.due_date) > new Date()).length}
-            </p>
+            <p className="text-3xl font-bold text-blue-500">{upcomingCount}</p>
           </div>
         </div>
 
@@ -428,9 +460,16 @@ export default function RemindersPage() {
               <div className="flex gap-3">
                 <Button
                   type="submit"
+                  disabled={isSubmitting}
                   className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl"
                 >
-                  {editingId ? 'Atualizar' : 'Adicionar'}
+                  {isSubmitting
+                    ? editingId
+                      ? 'Atualizando...'
+                      : 'Adicionando...'
+                    : editingId
+                      ? 'Atualizar'
+                      : 'Adicionar'}
                 </Button>
                 <Button
                   type="button"
@@ -462,10 +501,8 @@ export default function RemindersPage() {
                       <h3 className="text-lg font-semibold text-white">{reminder.title}</h3>
                       <p className="text-gray-400 text-sm mt-1">{reminder.description}</p>
                       <p className="text-gray-500 text-sm mt-2">
-                        Vencimento: {new Date(reminder.due_date).toLocaleDateString('pt-BR')}
-                        {(reminder as Reminder & { due_time?: string | null }).due_time
-                          ? ` às ${(reminder as Reminder & { due_time?: string | null }).due_time}`
-                          : ''}
+                        Vencimento: {formatDateBR(reminder.due_date)}
+                        {reminder.due_time ? ` às ${reminder.due_time}` : ''}
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -514,7 +551,7 @@ export default function RemindersPage() {
                         {reminder.title}
                       </h3>
                       <p className="text-gray-500 text-sm mt-2">
-                        Concluído em: {new Date(reminder.due_date).toLocaleDateString('pt-BR')}
+                        Concluído em: {formatDateBR(reminder.due_date)}
                       </p>
                     </div>
                     <Button
