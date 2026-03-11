@@ -122,10 +122,10 @@ export default function LoginPage() {
           <div className="flex justify-center mb-8">
             <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-lg shadow-amber-600/20">
               <img
-                src="/assets/mark-assistentepro.svg"
-                alt="AssistentePro"
-                className="w-full h-full object-cover"
-              />
+            src="/logo.png"
+            alt="AssistentePro"
+           className="w-full h-full object-contain"
+           />
             </div>
           </div>
 
