@@ -37,6 +37,24 @@ interface Transaction {
   payment_method: string
 }
 
+function getLocalDateString() {
+  const now = new Date()
+  const offset = now.getTimezoneOffset()
+  const localDate = new Date(now.getTime() - offset * 60 * 1000)
+  return localDate.toISOString().split('T')[0]
+}
+
+function formatDateBR(dateString: string) {
+  if (!dateString) return '-'
+
+  const onlyDate = dateString.split('T')[0]
+  const [year, month, day] = onlyDate.split('-')
+
+  if (!year || !month || !day) return dateString
+
+  return `${day}/${month}/${year}`
+}
+
 export default function TransactionsPage() {
   return (
     <Suspense fallback={<div className="min-h-screen bg-black" />}>
@@ -65,7 +83,7 @@ function TransactionsContent() {
     type: 'expense' as 'income' | 'expense',
     category: '',
     description: '',
-    date: new Date().toISOString().split('T')[0],
+    date: getLocalDateString(),
     payment_method: 'cash',
   })
 
@@ -212,7 +230,6 @@ function TransactionsContent() {
 
     try {
       if (editingId) {
-        // Atualizar transação existente
         const updateResult = await supabase
           .from('transactions')
           .update({
@@ -244,7 +261,6 @@ function TransactionsContent() {
           }
         }
       } else {
-        // Inserir nova transação
         const insertResult = await supabase.from('transactions').insert([
           {
             user_id: userId,
@@ -295,7 +311,7 @@ function TransactionsContent() {
       type: 'expense',
       category: '',
       description: '',
-      date: new Date().toISOString().split('T')[0],
+      date: getLocalDateString(),
       payment_method: 'cash',
     })
     setEditingId(null)
@@ -365,7 +381,6 @@ function TransactionsContent() {
     <div className="min-h-screen bg-black">
       <Navigation />
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-4xl font-bold text-white mb-2">Transações</h1>
@@ -380,7 +395,6 @@ function TransactionsContent() {
           </Button>
         </div>
 
-        {/* Filters */}
         <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="space-y-2">
@@ -433,6 +447,7 @@ function TransactionsContent() {
               </Select>
             </div>
           </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
             <div className="space-y-2">
               <Label className="text-gray-300 font-semibold">Data inicial</Label>
@@ -459,6 +474,7 @@ function TransactionsContent() {
               />
             </div>
           </div>
+
           <div className="flex gap-3 mt-4">
             <Button
               type="button"
@@ -477,7 +493,6 @@ function TransactionsContent() {
           </div>
         </div>
 
-        {/* Form */}
         {showForm && (
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
             <h2 className="text-2xl font-bold text-white mb-6">
@@ -497,6 +512,7 @@ function TransactionsContent() {
                     className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Tipo</Label>
                   <Select
@@ -514,6 +530,7 @@ function TransactionsContent() {
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Categoria</Label>
                   <Input
@@ -524,6 +541,7 @@ function TransactionsContent() {
                     className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Método de Pagamento</Label>
                   <Select
@@ -541,6 +559,7 @@ function TransactionsContent() {
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Data</Label>
                   <Input
@@ -552,6 +571,7 @@ function TransactionsContent() {
                   />
                 </div>
               </div>
+
               <div className="space-y-2">
                 <Label className="text-gray-300 font-semibold">Descrição</Label>
                 <Input
@@ -561,6 +581,7 @@ function TransactionsContent() {
                   className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
                 />
               </div>
+
               <div className="flex gap-3">
                 <Button
                   type="submit"
@@ -580,7 +601,6 @@ function TransactionsContent() {
           </div>
         )}
 
-        {/* Transactions Table */}
         <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
           <div className="overflow-x-auto">
             <Table>
@@ -608,7 +628,7 @@ function TransactionsContent() {
                       className="border-b border-gray-800 hover:bg-gray-800/30 transition"
                     >
                       <TableCell className="text-gray-300 py-4">
-                        {new Date(transaction.date).toLocaleDateString('pt-BR')}
+                        {formatDateBR(transaction.date)}
                       </TableCell>
                       <TableCell className="text-gray-300">{transaction.description}</TableCell>
                       <TableCell className="text-gray-300 capitalize">
