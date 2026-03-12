@@ -15,7 +15,17 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
-import { Bell, Plus, Trash2, CheckCircle2, Clock, Edit } from 'lucide-react'
+import {
+  Bell,
+  Plus,
+  Trash2,
+  CheckCircle2,
+  Clock,
+  Edit,
+  Search,
+  SlidersHorizontal,
+  X,
+} from 'lucide-react'
 import { toast } from '@/hooks/useToast'
 
 interface Reminder {
@@ -35,13 +45,33 @@ function getLocalDateString() {
   return localDate.toISOString().split('T')[0]
 }
 
-function formatDateBR(dateString: string) {
-  if (!dateString) return '-'
+function normalizeDateOnly(value?: string | null) {
+  if (!value) return ''
+  const str = String(value).trim()
 
-  const onlyDate = dateString.split('T')[0]
+  if (str.includes('T')) return str.split('T')[0]
+  if (str.includes(' ')) return str.split(' ')[0]
+  if (str.includes('/')) {
+    const parts = str.split('/')
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`
+      }
+      if (parts[2].length === 4) {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
+      }
+    }
+  }
+
+  return str.slice(0, 10).replace(/\//g, '-')
+}
+
+function formatDateBR(dateString?: string | null) {
+  const onlyDate = normalizeDateOnly(dateString)
+  if (!onlyDate) return '-'
+
   const [year, month, day] = onlyDate.split('-')
-
-  if (!year || !month || !day) return dateString
+  if (!year || !month || !day) return onlyDate
 
   return `${day}/${month}/${year}`
 }
@@ -51,11 +81,13 @@ export default function RemindersPage() {
   const { userId, loading: authLoading } = useAuth()
   const [reminders, setReminders] = useState<Reminder[]>([])
   const [showForm, setShowForm] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [month, setMonth] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'completed'>('all')
+  const [search, setSearch] = useState('')
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -73,10 +105,10 @@ export default function RemindersPage() {
       if (!year || !monthNumber) return { start: null, end: null }
 
       const lastDay = new Date(year, monthNumber, 0).getDate()
-      const start = `${yearStr}-${monthStr}-01`
-      const end = `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`
-
-      return { start, end }
+      return {
+        start: `${yearStr}-${monthStr}-01`,
+        end: `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`,
+      }
     }
 
     return {
@@ -106,27 +138,39 @@ export default function RemindersPage() {
         .eq('user_id', userId)
         .order('due_date', { ascending: true })
 
-      if (dateRange.start) {
-        query = query.gte('due_date', dateRange.start)
-      }
-
-      if (dateRange.end) {
-        query = query.lte('due_date', dateRange.end)
-      }
-
-      if (statusFilter !== 'all') {
-        query = query.eq('status', statusFilter)
-      }
+      if (dateRange.start) query = query.gte('due_date', dateRange.start)
+      if (dateRange.end) query = query.lte('due_date', dateRange.end)
+      if (statusFilter !== 'all') query = query.eq('status', statusFilter)
 
       const { data, error } = await query
 
       if (!error && data) {
-        setReminders(data as Reminder[])
+        setReminders(
+          (data as Reminder[]).map((reminder) => ({
+            ...reminder,
+            due_date: normalizeDateOnly(reminder.due_date),
+          })),
+        )
       }
     } catch (error) {
       console.error('Erro ao buscar lembretes:', error)
     }
   }
+
+  const visibleReminders = useMemo(() => {
+    let rows = [...reminders]
+
+    if (search.trim()) {
+      const term = search.trim().toLowerCase()
+      rows = rows.filter(
+        (reminder) =>
+          reminder.title.toLowerCase().includes(term) ||
+          (reminder.description || '').toLowerCase().includes(term),
+      )
+    }
+
+    return rows
+  }, [reminders, search])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -168,28 +212,18 @@ export default function RemindersPage() {
     setIsSubmitting(true)
 
     try {
+      const payload = {
+        title: formData.title,
+        description: formData.description,
+        due_date: normalizeDateOnly(formData.due_date),
+        due_time: formData.due_time || null,
+        reminder_type: formData.reminder_type,
+      }
+
       if (editingId) {
-        const { error } = await supabase
-          .from('reminders')
-          .update({
-            title: formData.title,
-            description: formData.description,
-            due_date: formData.due_date,
-            due_time: formData.due_time || null,
-            reminder_type: formData.reminder_type,
-          })
-          .eq('id', editingId)
+        const { error } = await supabase.from('reminders').update(payload).eq('id', editingId)
 
         if (error) {
-          console.error('Erro ao atualizar lembrete:', {
-            message: (error as any)?.message,
-            details: (error as any)?.details,
-            hint: (error as any)?.hint,
-            code: (error as any)?.code,
-            status: (error as any)?.status,
-            raw: error,
-          })
-
           toast({
             title: 'Erro',
             description: (error as any)?.message || 'Falha ao atualizar compromisso',
@@ -207,23 +241,13 @@ export default function RemindersPage() {
 
         const { error } = await supabase.from('reminders').insert([
           {
-            ...formData,
-            due_time: formData.due_time || null,
+            ...payload,
             user_id: authUserId,
             status: 'pending',
           },
         ])
 
         if (error) {
-          console.error('Erro ao criar lembrete:', {
-            message: (error as any)?.message,
-            details: (error as any)?.details,
-            hint: (error as any)?.hint,
-            code: (error as any)?.code,
-            status: (error as any)?.status,
-            raw: error,
-          })
-
           toast({
             title: 'Erro',
             description: (error as any)?.message || 'Falha ao criar compromisso',
@@ -286,7 +310,7 @@ export default function RemindersPage() {
     setFormData({
       title: reminder.title,
       description: reminder.description,
-      due_date: reminder.due_date.split('T')[0],
+      due_date: normalizeDateOnly(reminder.due_date),
       due_time: reminder.due_time || '',
       reminder_type: reminder.reminder_type,
     })
@@ -294,19 +318,22 @@ export default function RemindersPage() {
     setShowForm(true)
   }
 
-  const pendingReminders = reminders.filter((r) => r.status === 'pending')
-  const completedReminders = reminders.filter((r) => r.status === 'completed')
+  const pendingReminders = visibleReminders.filter((r) => r.status === 'pending')
+  const completedReminders = visibleReminders.filter((r) => r.status === 'completed')
   const today = getLocalDateString()
-  const upcomingCount = pendingReminders.filter((r) => r.due_date.split('T')[0] >= today).length
+  const upcomingCount = reminders.filter(
+    (r) => r.status === 'pending' && normalizeDateOnly(r.due_date) >= today,
+  ).length
+
+  const hasActiveFilters = !!month || !!startDate || !!endDate || statusFilter !== 'all'
 
   return (
     <div className="min-h-screen bg-black">
       <Navigation />
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-8 gap-4 flex-wrap">
           <div>
-            <h1 className="text-4xl font-bold text-white mb-2">Lembretes</h1>
+            <h1 className="text-4xl font-bold text-white mb-2">Compromissos</h1>
             <p className="text-gray-400">Mantenha-se atualizado com seus compromissos</p>
           </div>
           <Button
@@ -314,11 +341,10 @@ export default function RemindersPage() {
             className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl flex items-center gap-2"
           >
             <Plus className="w-5 h-5" />
-            Novo Lembrete
+            Novo Compromisso
           </Button>
         </div>
 
-        {/* Summary */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
             <p className="text-gray-400 text-sm mb-2">Total</p>
@@ -326,11 +352,15 @@ export default function RemindersPage() {
           </div>
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
             <p className="text-gray-400 text-sm mb-2">Pendentes</p>
-            <p className="text-3xl font-bold text-red-500">{pendingReminders.length}</p>
+            <p className="text-3xl font-bold text-red-500">
+              {reminders.filter((r) => r.status === 'pending').length}
+            </p>
           </div>
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
             <p className="text-gray-400 text-sm mb-2">Concluídos</p>
-            <p className="text-3xl font-bold text-green-500">{completedReminders.length}</p>
+            <p className="text-3xl font-bold text-green-500">
+              {reminders.filter((r) => r.status === 'completed').length}
+            </p>
           </div>
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
             <p className="text-gray-400 text-sm mb-2">Próximos</p>
@@ -338,82 +368,114 @@ export default function RemindersPage() {
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="space-y-2">
-              <Label className="text-gray-300">Mês</Label>
+        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-4 mb-8">
+          <div className="flex flex-col md:flex-row gap-3 md:items-center">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <Input
-                type="month"
-                value={month}
-                onChange={(e) => {
-                  setMonth(e.target.value)
-                  if (e.target.value) {
-                    setStartDate('')
-                    setEndDate('')
-                  }
-                }}
-                className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                placeholder="Pesquisar por título ou descrição"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="bg-gray-800 border-gray-700 text-white rounded-xl pl-10"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-gray-300">Data inicial</Label>
-              <Input
-                type="date"
-                value={startDate}
-                onChange={(e) => {
-                  setStartDate(e.target.value)
-                  if (e.target.value) setMonth('')
-                }}
-                className="bg-gray-800 border-gray-700 text-white rounded-xl"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-gray-300">Data final</Label>
-              <Input
-                type="date"
-                value={endDate}
-                onChange={(e) => {
-                  setEndDate(e.target.value)
-                  if (e.target.value) setMonth('')
-                }}
-                className="bg-gray-800 border-gray-700 text-white rounded-xl"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-gray-300">Status</Label>
-              <Select
-                value={statusFilter}
-                onValueChange={(value: 'all' | 'pending' | 'completed') => setStatusFilter(value)}
-              >
-                <SelectTrigger className="bg-gray-800 border-gray-700 text-white rounded-xl">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-gray-800 border-gray-700">
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="pending">Pendente</SelectItem>
-                  <SelectItem value="completed">Concluído</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="flex gap-3 mt-4">
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowFilters((prev) => !prev)}
+              className="border-gray-700 text-gray-300 hover:bg-gray-800"
+            >
+              <SlidersHorizontal className="w-4 h-4 mr-2" />
+              Filtros
+              {hasActiveFilters ? (
+                <span className="ml-2 inline-flex h-2 w-2 rounded-full bg-amber-500" />
+              ) : null}
+            </Button>
+
             <Button
               type="button"
               variant="outline"
               onClick={() => {
+                setSearch('')
                 setMonth('')
                 setStartDate('')
                 setEndDate('')
                 setStatusFilter('all')
               }}
+              className="border-gray-700 text-gray-300 hover:bg-gray-800"
             >
-              Limpar filtros
+              <X className="w-4 h-4 mr-2" />
+              Limpar
             </Button>
           </div>
+
+          {showFilters && (
+            <div className="mt-4 border-t border-gray-800 pt-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div>
+                  <Label className="text-gray-300 text-sm mb-2 block">Mês</Label>
+                  <Input
+                    type="month"
+                    value={month}
+                    onChange={(e) => {
+                      setMonth(e.target.value)
+                      if (e.target.value) {
+                        setStartDate('')
+                        setEndDate('')
+                      }
+                    }}
+                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                  />
+                </div>
+
+                <div>
+                  <Label className="text-gray-300 text-sm mb-2 block">Data inicial</Label>
+                  <Input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => {
+                      setStartDate(e.target.value)
+                      if (e.target.value) setMonth('')
+                    }}
+                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                  />
+                </div>
+
+                <div>
+                  <Label className="text-gray-300 text-sm mb-2 block">Data final</Label>
+                  <Input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => {
+                      setEndDate(e.target.value)
+                      if (e.target.value) setMonth('')
+                    }}
+                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                  />
+                </div>
+
+                <div>
+                  <Label className="text-gray-300 text-sm mb-2 block">Status</Label>
+                  <Select
+                    value={statusFilter}
+                    onValueChange={(value: 'all' | 'pending' | 'completed') => setStatusFilter(value)}
+                  >
+                    <SelectTrigger className="bg-gray-800 border-gray-700 text-white rounded-xl">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-gray-800 border-gray-700">
+                      <SelectItem value="all">Todos</SelectItem>
+                      <SelectItem value="pending">Pendente</SelectItem>
+                      <SelectItem value="completed">Concluído</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Form */}
         {showForm && (
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -421,13 +483,14 @@ export default function RemindersPage() {
                 <div className="space-y-2">
                   <Label className="text-gray-300">Título</Label>
                   <Input
-                    placeholder="Título do lembrete"
+                    placeholder="Título do compromisso"
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                     required
                     className="bg-gray-800 border-gray-700 text-white rounded-xl"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300">Data</Label>
                   <Input
@@ -438,6 +501,7 @@ export default function RemindersPage() {
                     className="bg-gray-800 border-gray-700 text-white rounded-xl"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300">Hora</Label>
                   <Input
@@ -447,16 +511,28 @@ export default function RemindersPage() {
                     className="bg-gray-800 border-gray-700 text-white rounded-xl"
                   />
                 </div>
+
+                <div className="space-y-2">
+                  <Label className="text-gray-300">Tipo</Label>
+                  <Input
+                    placeholder="Ex: task"
+                    value={formData.reminder_type}
+                    onChange={(e) => setFormData({ ...formData, reminder_type: e.target.value })}
+                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                  />
+                </div>
               </div>
+
               <div className="space-y-2">
                 <Label className="text-gray-300">Descrição</Label>
                 <Input
-                  placeholder="Descrição do lembrete"
+                  placeholder="Descrição do compromisso"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   className="bg-gray-800 border-gray-700 text-white rounded-xl"
                 />
               </div>
+
               <div className="flex gap-3">
                 <Button
                   type="submit"
@@ -473,7 +549,7 @@ export default function RemindersPage() {
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => resetForm()}
+                  onClick={resetForm}
                   className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-6 py-3 rounded-xl"
                 >
                   Cancelar
@@ -483,7 +559,6 @@ export default function RemindersPage() {
           </div>
         )}
 
-        {/* Reminders List */}
         <div className="space-y-8">
           {pendingReminders.length > 0 && (
             <div>
@@ -567,10 +642,10 @@ export default function RemindersPage() {
             </div>
           )}
 
-          {reminders.length === 0 && (
+          {visibleReminders.length === 0 && (
             <div className="bg-gray-900 rounded-2xl border border-gray-800 p-12 text-center">
               <Bell className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-              <p className="text-gray-400">Nenhum lembrete registrado</p>
+              <p className="text-gray-400">Nenhum compromisso registrado</p>
             </div>
           )}
         </div>
