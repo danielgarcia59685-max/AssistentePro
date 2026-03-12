@@ -15,8 +15,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
-import { FileText, Plus, Trash2, CheckCircle2, Edit, Search } from 'lucide-react'
+import { FileText, Plus, Trash2, CheckCircle2, Edit } from 'lucide-react'
 import { toast } from '@/hooks/useToast'
+import { CompactFilterBar } from '@/components/CompactFilterBar'
+import { AppStatCard } from '@/components/AppStatCard'
 
 type AccountStatus = 'pending' | 'paid' | 'overdue'
 
@@ -77,16 +79,20 @@ function formatDateBR(dateString?: string | null) {
 export default function BillsPage() {
   const router = useRouter()
   const { userId, loading: authLoading } = useAuth()
+
   const [bills, setBills] = useState<Bill[]>([])
   const [showForm, setShowForm] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'payable' | 'receivable'>('payable')
+
   const [month, setMonth] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | AccountStatus>('all')
   const [search, setSearch] = useState('')
   const [currency, setCurrency] = useState('BRL')
+
   const [formData, setFormData] = useState({
     amount: '',
     due_date: getLocalDateString(),
@@ -98,6 +104,7 @@ export default function BillsPage() {
     recurrence_count: '',
     recurrence_end_date: '',
   })
+
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const dateRange = useMemo(() => {
@@ -123,6 +130,7 @@ export default function BillsPage() {
       router.push('/login')
       return
     }
+
     if (userId) {
       fetchProfileCurrency()
       fetchBills()
@@ -140,11 +148,10 @@ export default function BillsPage() {
 
     try {
       const table = activeTab === 'payable' ? 'accounts_payable' : 'accounts_receivable'
-      let query = supabase
-        .from(table)
-        .select('*')
-        .eq('user_id', userId)
-        .order('due_date', { ascending: true })
+
+      let query = supabase.from(table).select('*').eq('user_id', userId).order('due_date', {
+        ascending: true,
+      })
 
       if (dateRange.start) query = query.gte('due_date', dateRange.start)
       if (dateRange.end) query = query.lte('due_date', dateRange.end)
@@ -210,6 +217,7 @@ export default function BillsPage() {
     if (!supabase) return
 
     const { data: sessionData } = await supabase.auth.getSession()
+
     if (!sessionData.session) {
       toast({
         title: 'Sessão expirada',
@@ -376,8 +384,14 @@ export default function BillsPage() {
       const table = activeTab === 'payable' ? 'accounts_payable' : 'accounts_receivable'
       await supabase.from(table).delete().eq('id', id)
       fetchBills()
+      toast({ title: 'Sucesso', description: 'Conta removida com sucesso' })
     } catch (error) {
       console.error('Erro ao deletar:', error)
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível remover a conta',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -386,6 +400,7 @@ export default function BillsPage() {
 
     try {
       const table = activeTab === 'payable' ? 'accounts_payable' : 'accounts_receivable'
+
       await supabase
         .from(table)
         .update({
@@ -395,8 +410,14 @@ export default function BillsPage() {
         .eq('id', id)
 
       fetchBills()
+      toast({ title: 'Sucesso', description: 'Conta marcada como paga' })
     } catch (error) {
       console.error('Erro ao atualizar status:', error)
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível atualizar o status',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -410,12 +431,14 @@ export default function BillsPage() {
   return (
     <div className="min-h-screen bg-black">
       <Navigation />
+
       <main className="max-w-7xl mx-auto px-6 py-8">
         <div className="flex justify-between items-center mb-8 gap-4 flex-wrap">
           <div>
             <h1 className="text-4xl font-bold text-white mb-2">Contas</h1>
-            <p className="text-gray-400">Gerenciamento de Contas a Pagar e Receber</p>
+            <p className="text-[#94a3b8]">Gerenciamento de Contas a Pagar e Receber</p>
           </div>
+
           <Button
             onClick={() => setShowForm(!showForm)}
             className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl flex items-center gap-2"
@@ -425,15 +448,15 @@ export default function BillsPage() {
           </Button>
         </div>
 
-        <div className="flex gap-4 mb-6 border-b border-gray-800">
+        <div className="flex gap-4 mb-6 border-b border-[#1f2a44]">
           {(['payable', 'receivable'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`px-6 py-3 font-medium text-lg transition-colors border-b-2 ${
                 activeTab === tab
-                  ? 'text-amber-600 border-amber-600'
-                  : 'text-gray-400 border-transparent hover:text-gray-300'
+                  ? 'text-amber-500 border-amber-500'
+                  : 'text-[#94a3b8] border-transparent hover:text-white'
               }`}
             >
               {tab === 'payable' ? 'A Pagar' : 'A Receber'}
@@ -441,21 +464,22 @@ export default function BillsPage() {
           ))}
         </div>
 
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-4 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-            <div className="md:col-span-2">
-              <Label className="text-gray-300 text-sm mb-2 block">Pesquisar</Label>
-              <div className="relative">
-                <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                <Input
-                  placeholder="Buscar por descrição, fornecedor ou cliente"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="bg-gray-800 border-gray-700 text-white rounded-xl pl-10"
-                />
-              </div>
-            </div>
-
+        <CompactFilterBar
+          search={search}
+          onSearchChange={setSearch}
+          onToggleFilters={() => setShowFilters((prev) => !prev)}
+          onClear={() => {
+            setSearch('')
+            setMonth('')
+            setStartDate('')
+            setEndDate('')
+            setStatusFilter('all')
+          }}
+          showFilters={showFilters}
+          placeholder="Buscar por descrição, fornecedor ou cliente"
+          searchClassName="lg:max-w-md"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <div>
               <Label className="text-gray-300 text-sm mb-2 block">Mês</Label>
               <Input
@@ -468,7 +492,7 @@ export default function BillsPage() {
                     setEndDate('')
                   }
                 }}
-                className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
               />
             </div>
 
@@ -481,7 +505,20 @@ export default function BillsPage() {
                   setStartDate(e.target.value)
                   if (e.target.value) setMonth('')
                 }}
-                className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
+              />
+            </div>
+
+            <div>
+              <Label className="text-gray-300 text-sm mb-2 block">Data final</Label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => {
+                  setEndDate(e.target.value)
+                  if (e.target.value) setMonth('')
+                }}
+                className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
               />
             </div>
 
@@ -491,10 +528,10 @@ export default function BillsPage() {
                 value={statusFilter}
                 onValueChange={(value: 'all' | AccountStatus) => setStatusFilter(value)}
               >
-                <SelectTrigger className="bg-gray-800 border-gray-700 text-white rounded-xl">
+                <SelectTrigger className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-gray-800 border-gray-700">
+                <SelectContent className="bg-[#111827] border-[#2a3650]">
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="pending">Pendente</SelectItem>
                   <SelectItem value="overdue">Vencido</SelectItem>
@@ -503,65 +540,21 @@ export default function BillsPage() {
               </Select>
             </div>
           </div>
-
-          <div className="flex gap-3 mt-3 flex-wrap">
-            <div className="w-full md:w-56">
-              <Label className="text-gray-300 text-sm mb-2 block">Data final</Label>
-              <Input
-                type="date"
-                value={endDate}
-                onChange={(e) => {
-                  setEndDate(e.target.value)
-                  if (e.target.value) setMonth('')
-                }}
-                className="bg-gray-800 border-gray-700 text-white rounded-xl"
-              />
-            </div>
-
-            <div className="flex items-end gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setSearch('')
-                  setMonth('')
-                  setStartDate('')
-                  setEndDate('')
-                  setStatusFilter('all')
-                }}
-                className="border-gray-700 text-gray-300 hover:bg-gray-800"
-              >
-                Limpar filtros
-              </Button>
-            </div>
-          </div>
-        </div>
+        </CompactFilterBar>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <p className="text-gray-400 text-sm mb-2">
-              Total {activeTab === 'payable' ? 'A Pagar' : 'A Receber'}
-            </p>
-            <p className="text-3xl font-bold text-amber-600">
-              {formatCurrency(totalAmount, currency)}
-            </p>
-          </div>
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <p className="text-gray-400 text-sm mb-2">Pendente</p>
-            <p className="text-3xl font-bold text-red-500">{pendingBills.length}</p>
-          </div>
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <p className="text-gray-400 text-sm mb-2">Vencido</p>
-            <p className="text-3xl font-bold text-orange-500">{overdueBills.length}</p>
-          </div>
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <p className="text-gray-400 text-sm mb-2">Pago</p>
-            <p className="text-3xl font-bold text-green-500">{paidBills.length}</p>
-          </div>
+          <AppStatCard
+            title={`Total ${activeTab === 'payable' ? 'A Pagar' : 'A Receber'}`}
+            value={formatCurrency(totalAmount, currency)}
+            valueClassName="text-amber-500"
+          />
+          <AppStatCard title="Pendente" value={pendingBills.length} valueClassName="text-red-500" />
+          <AppStatCard title="Vencido" value={overdueBills.length} valueClassName="text-orange-500" />
+          <AppStatCard title="Pago" value={paidBills.length} valueClassName="text-green-500" />
         </div>
 
         {showForm && (
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
+          <div className="bg-[#08152d] rounded-2xl border border-[#1f2a44] p-6 mb-8">
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
@@ -575,7 +568,7 @@ export default function BillsPage() {
                     value={formData.party_name}
                     onChange={(e) => setFormData({ ...formData, party_name: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                    className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
                   />
                 </div>
 
@@ -587,7 +580,7 @@ export default function BillsPage() {
                     value={formData.amount}
                     onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                    className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
                   />
                 </div>
 
@@ -597,10 +590,10 @@ export default function BillsPage() {
                     value={formData.payment_method}
                     onValueChange={(value) => setFormData({ ...formData, payment_method: value })}
                   >
-                    <SelectTrigger className="bg-gray-800 border-gray-700 text-white rounded-xl">
+                    <SelectTrigger className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-gray-800 border-gray-700">
+                    <SelectContent className="bg-[#111827] border-[#2a3650]">
                       <SelectItem value="pix">PIX</SelectItem>
                       <SelectItem value="card">Cartão</SelectItem>
                       <SelectItem value="transfer">Transferência</SelectItem>
@@ -616,7 +609,7 @@ export default function BillsPage() {
                     value={formData.due_date}
                     onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                    className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
                   />
                 </div>
               </div>
@@ -627,7 +620,7 @@ export default function BillsPage() {
                   placeholder="Descrição"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                  className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
                 />
               </div>
 
@@ -654,10 +647,10 @@ export default function BillsPage() {
                         setFormData({ ...formData, recurrence_interval: value })
                       }
                     >
-                      <SelectTrigger className="bg-gray-800 border-gray-700 text-white rounded-xl">
+                      <SelectTrigger className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="bg-gray-800 border-gray-700">
+                      <SelectContent className="bg-[#111827] border-[#2a3650]">
                         <SelectItem value="weekly">Semanal</SelectItem>
                         <SelectItem value="monthly">Mensal</SelectItem>
                         <SelectItem value="quarterly">Trimestral</SelectItem>
@@ -675,7 +668,7 @@ export default function BillsPage() {
                       onChange={(e) =>
                         setFormData({ ...formData, recurrence_count: e.target.value })
                       }
-                      className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                      className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
                     />
                   </div>
 
@@ -687,13 +680,13 @@ export default function BillsPage() {
                       onChange={(e) =>
                         setFormData({ ...formData, recurrence_end_date: e.target.value })
                       }
-                      className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                      className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
                     />
                   </div>
                 </div>
               )}
 
-              <div className="flex gap-3">
+              <div className="flex gap-3 flex-wrap">
                 <Button
                   type="submit"
                   disabled={isSubmitting}
@@ -711,7 +704,7 @@ export default function BillsPage() {
                 <Button
                   type="button"
                   onClick={resetForm}
-                  className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-6 py-3 rounded-xl"
+                  className="border border-[#2a3650] bg-black text-white hover:bg-[#111827] px-6 py-3 rounded-xl"
                 >
                   Cancelar
                 </Button>
@@ -722,17 +715,17 @@ export default function BillsPage() {
 
         <div className="space-y-4">
           {visibleBills.length === 0 ? (
-            <div className="bg-gray-900 rounded-2xl border border-gray-800 p-12 text-center">
-              <FileText className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-              <p className="text-gray-400">Nenhuma conta registrada</p>
+            <div className="bg-[#08152d] rounded-2xl border border-[#1f2a44] p-12 text-center">
+              <FileText className="w-12 h-12 text-[#64748b] mx-auto mb-4" />
+              <p className="text-[#94a3b8]">Nenhuma conta registrada</p>
             </div>
           ) : (
             visibleBills.map((bill) => (
               <div
                 key={bill.id}
-                className="bg-gray-900 rounded-2xl border border-gray-800 p-6 flex items-center justify-between hover:border-gray-700 transition"
+                className="bg-[#08152d] rounded-2xl border border-[#1f2a44] p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-5 hover:border-[#2a3650] transition"
               >
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <h3 className="text-lg font-semibold text-white">
                     {bill.description ||
                       (activeTab === 'payable' ? bill.supplier_name : bill.client_name) ||
@@ -740,21 +733,23 @@ export default function BillsPage() {
                   </h3>
 
                   {(bill.supplier_name || bill.client_name) && (
-                    <p className="text-gray-500 text-sm">
+                    <p className="text-[#64748b] text-sm mt-1">
                       {activeTab === 'payable' ? bill.supplier_name : bill.client_name}
                     </p>
                   )}
 
-                  <p className="text-gray-400 text-sm">
+                  <p className="text-[#94a3b8] text-sm mt-2">
                     Vencimento: {formatDateBR(bill.due_date)}
                   </p>
 
                   {bill.is_recurring && (
-                    <p className="text-amber-600 text-sm">Recorrente: {bill.recurrence_interval}</p>
+                    <p className="text-amber-400 text-sm mt-2">
+                      Recorrente: {bill.recurrence_interval}
+                    </p>
                   )}
                 </div>
 
-                <div className="flex items-center gap-6">
+                <div className="flex flex-wrap items-center gap-3 lg:gap-4">
                   <span
                     className={`text-2xl font-bold ${
                       bill.status === 'paid'
