@@ -35,7 +35,9 @@ import {
   BarChart3,
   Download,
   Filter,
-  RotateCcw,
+  Search,
+  SlidersHorizontal,
+  X,
 } from 'lucide-react'
 
 type TransactionRowEN = {
@@ -95,20 +97,7 @@ function monthKeyFromISO(iso: string) {
 
 function monthLabelPT(yyyyMm: string) {
   const [y, m] = yyyyMm.split('-').map(Number)
-  const months = [
-    'jan',
-    'fev',
-    'mar',
-    'abr',
-    'mai',
-    'jun',
-    'jul',
-    'ago',
-    'set',
-    'out',
-    'nov',
-    'dez',
-  ]
+  const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
   return `${months[(m || 1) - 1]}/${y}`
 }
 
@@ -129,10 +118,10 @@ export default function ReportsPage() {
   const [draftMonth, setDraftMonth] = useState('')
   const [draftStartDate, setDraftStartDate] = useState('')
   const [draftEndDate, setDraftEndDate] = useState('')
-
   const [month, setMonth] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [showFilters, setShowFilters] = useState(false)
 
   const [isLoading, setIsLoading] = useState(false)
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([])
@@ -522,95 +511,107 @@ export default function ReportsPage() {
           </div>
 
           <Card className="mb-8 bg-gray-900 border-gray-800">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-white flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-amber-600" />
-                Filtros
-              </CardTitle>
-            </CardHeader>
-
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <div>
-                  <Label className="text-gray-300 text-sm mb-2 block">Mês</Label>
-                  <Input
-                    type="month"
-                    value={draftMonth}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setDraftMonth(v)
-                      if (v) {
-                        setDraftStartDate('')
-                        setDraftEndDate('')
-                      }
-                    }}
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
-                  />
-                </div>
-
-                <div>
-                  <Label className="text-gray-300 text-sm mb-2 block">Data inicial</Label>
-                  <Input
-                    type="date"
-                    value={draftStartDate}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setDraftStartDate(v)
-                      if (v) setDraftMonth('')
-                    }}
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
-                  />
-                </div>
-
-                <div>
-                  <Label className="text-gray-300 text-sm mb-2 block">Data final</Label>
-                  <Input
-                    type="date"
-                    value={draftEndDate}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setDraftEndDate(v)
-                      if (v) setDraftMonth('')
-                    }}
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
-                  />
-                </div>
-
-                <div className="flex items-end gap-3">
-                  <Button
-                    type="button"
-                    onClick={applyFilters}
-                    disabled={Boolean(dateError)}
-                    className="bg-amber-600 hover:bg-amber-700 text-white"
-                  >
-                    <Filter className="w-4 h-4 mr-2" />
-                    Aplicar
-                  </Button>
-
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={clearFilters}
-                    className="border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-amber-600"
-                  >
-                    <RotateCcw className="w-4 h-4 mr-2" />
-                    Limpar
-                  </Button>
-                </div>
-              </div>
-
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  {dateError ? <div className="text-sm text-red-400">{dateError}</div> : null}
-                </div>
-
-                {isLoading && (
-                  <div className="flex items-center gap-2 text-amber-600">
-                    <div className="w-4 h-4 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
-                    <span className="text-sm">Atualizando relatórios...</span>
+            <CardContent className="pt-6">
+              <div className="flex flex-col md:flex-row gap-3 md:items-center">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <div className="h-11 rounded-xl border border-gray-700 bg-gray-800 flex items-center pl-10 pr-4 text-gray-400">
+                    {month
+                      ? `Filtrando por mês: ${month}`
+                      : dateRange.start || dateRange.end
+                        ? `Filtrando por período: ${formatDateBR(dateRange.start)} até ${formatDateBR(dateRange.end)}`
+                        : 'Todos os registros'}
                   </div>
-                )}
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowFilters((prev) => !prev)}
+                  className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                >
+                  <SlidersHorizontal className="w-4 h-4 mr-2" />
+                  Filtros
+                  {month || startDate || endDate ? (
+                    <span className="ml-2 inline-flex h-2 w-2 rounded-full bg-amber-500" />
+                  ) : null}
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={clearFilters}
+                  className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Limpar
+                </Button>
               </div>
+
+              {showFilters && (
+                <div className="mt-4 border-t border-gray-800 pt-4">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <div>
+                      <Label className="text-gray-300 text-sm mb-2 block">Mês</Label>
+                      <Input
+                        type="month"
+                        value={draftMonth}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setDraftMonth(v)
+                          if (v) {
+                            setDraftStartDate('')
+                            setDraftEndDate('')
+                          }
+                        }}
+                        className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-gray-300 text-sm mb-2 block">Data inicial</Label>
+                      <Input
+                        type="date"
+                        value={draftStartDate}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setDraftStartDate(v)
+                          if (v) setDraftMonth('')
+                        }}
+                        className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-gray-300 text-sm mb-2 block">Data final</Label>
+                      <Input
+                        type="date"
+                        value={draftEndDate}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setDraftEndDate(v)
+                          if (v) setDraftMonth('')
+                        }}
+                        className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                      />
+                    </div>
+
+                    <div className="flex items-end">
+                      <Button
+                        type="button"
+                        onClick={applyFilters}
+                        disabled={Boolean(dateError)}
+                        className="bg-amber-600 hover:bg-amber-700 text-white w-full"
+                      >
+                        <Filter className="w-4 h-4 mr-2" />
+                        Aplicar
+                      </Button>
+                    </div>
+                  </div>
+
+                  {dateError ? <div className="text-sm text-red-400 mt-3">{dateError}</div> : null}
+                </div>
+              )}
             </CardContent>
           </Card>
 
