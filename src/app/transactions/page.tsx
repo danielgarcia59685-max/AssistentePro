@@ -22,6 +22,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Navigation } from '@/components/Navigation'
+import { CompactFilterBar } from '@/components/CompactFilterBar'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from '@/hooks/useToast'
@@ -49,9 +50,12 @@ function TransactionsContent() {
   const { userId, loading: authLoading } = useAuth()
   const searchParams = useSearchParams()
   const initializedFromQuery = useRef(false)
+
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [showForm, setShowForm] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+
   const [categoryFilter, setCategoryFilter] = useState('')
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense'>('all')
@@ -60,6 +64,7 @@ function TransactionsContent() {
   const [endDate, setEndDate] = useState('')
   const [currency, setCurrency] = useState('BRL')
   const [categoriesMap, setCategoriesMap] = useState<Record<string, string>>({})
+
   const [formData, setFormData] = useState({
     amount: '',
     type: 'expense' as 'income' | 'expense',
@@ -74,10 +79,13 @@ function TransactionsContent() {
       const [yearStr, monthStr] = month.split('-')
       const year = Number(yearStr)
       const monthNumber = Number(monthStr)
+
       if (!year || !monthNumber) return { start: null, end: null }
+
       const lastDay = new Date(year, monthNumber, 0).getDate()
       const start = `${yearStr}-${monthStr}-01`
       const end = `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`
+
       return { start, end }
     }
 
@@ -89,12 +97,14 @@ function TransactionsContent() {
 
   useEffect(() => {
     if (initializedFromQuery.current) return
+
     const category = searchParams.get('category')
     const start = searchParams.get('start')
     const end = searchParams.get('end')
     const monthParam = searchParams.get('month')
 
     if (category) setCategoryFilter(category)
+
     if (monthParam) {
       setMonth(monthParam)
     } else {
@@ -114,12 +124,15 @@ function TransactionsContent() {
 
   const fetchProfileCurrency = async () => {
     if (!supabase || !userId) return
+
     const { data } = await supabase.from('users').select('currency').eq('id', userId).single()
+
     if (data?.currency) setCurrency(data.currency)
   }
 
   const fetchCategories = async () => {
     if (!supabase || !userId) return
+
     try {
       const { data } = await supabase.from('categories').select('id, name').eq('user_id', userId)
 
@@ -137,8 +150,11 @@ function TransactionsContent() {
 
   const fetchTransactions = async () => {
     if (!supabase || !userId) {
-      console.warn('Supabase não está configurado')
-      toast({ title: 'Erro', description: 'Supabase não configurado', variant: 'destructive' })
+      toast({
+        title: 'Erro',
+        description: 'Supabase não configurado',
+        variant: 'destructive',
+      })
       return
     }
 
@@ -164,7 +180,6 @@ function TransactionsContent() {
       const { data, error } = await query
 
       if (error) {
-        console.error('Erro ao buscar transações:', error)
         toast({
           title: 'Erro',
           description: error.message || 'Falha ao buscar transações',
@@ -175,7 +190,11 @@ function TransactionsContent() {
       }
     } catch (error) {
       console.error('Erro ao buscar transações:', error)
-      toast({ title: 'Erro', description: 'Falha ao buscar transações', variant: 'destructive' })
+      toast({
+        title: 'Erro',
+        description: 'Falha ao buscar transações',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -201,18 +220,22 @@ function TransactionsContent() {
     }
 
     return rows
-  }, [transactions, categoryFilter, search])
+  }, [transactions, categoryFilter, search, categoriesMap])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
     if (!supabase || !userId) {
-      toast({ title: 'Erro', description: 'Sessão inválida', variant: 'destructive' })
+      toast({
+        title: 'Erro',
+        description: 'Sessão inválida',
+        variant: 'destructive',
+      })
       return
     }
 
     try {
       if (editingId) {
-        // Atualizar transação existente
         const updateResult = await supabase
           .from('transactions')
           .update({
@@ -228,6 +251,7 @@ function TransactionsContent() {
         if (updateResult.error) {
           if (isMissingColumnError(updateResult.error, 'category')) {
             const categoryId = await getOrCreateCategory(formData.category, formData.type)
+
             await supabase
               .from('transactions')
               .update({
@@ -244,7 +268,6 @@ function TransactionsContent() {
           }
         }
       } else {
-        // Inserir nova transação
         const insertResult = await supabase.from('transactions').insert([
           {
             user_id: userId,
@@ -260,6 +283,7 @@ function TransactionsContent() {
         if (insertResult.error) {
           if (isMissingColumnError(insertResult.error, 'category')) {
             const categoryId = await getOrCreateCategory(formData.category, formData.type)
+
             await supabase.from('transactions').insert([
               {
                 user_id: userId,
@@ -279,6 +303,10 @@ function TransactionsContent() {
 
       resetForm()
       fetchTransactions()
+      toast({
+        title: 'Sucesso',
+        description: editingId ? 'Transação atualizada com sucesso' : 'Transação adicionada com sucesso',
+      })
     } catch (error: any) {
       console.error('Erro ao salvar transação:', error)
       toast({
@@ -305,11 +333,21 @@ function TransactionsContent() {
   const handleDelete = async (id: string) => {
     if (!supabase) return
     if (!confirm('Tem certeza que deseja deletar esta transação?')) return
+
     try {
       await supabase.from('transactions').delete().eq('id', id)
       fetchTransactions()
+      toast({
+        title: 'Sucesso',
+        description: 'Transação removida com sucesso',
+      })
     } catch (err) {
       console.error('Erro ao deletar transação:', err)
+      toast({
+        title: 'Erro',
+        description: 'Falha ao deletar transação',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -318,16 +356,18 @@ function TransactionsContent() {
       amount: transaction.amount.toString(),
       type: transaction.type,
       category: getCategoryName(transaction) || '',
-      description: transaction.description,
+      description: transaction.description || '',
       date: transaction.date.split('T')[0],
       payment_method: transaction.payment_method,
     })
+
     setEditingId(transaction.id)
     setShowForm(true)
   }
 
   const getOrCreateCategory = async (name: string, type: 'income' | 'expense') => {
     if (!name.trim() || !supabase || !userId) return null
+
     try {
       const { data: existing } = await supabase
         .from('categories')
@@ -364,13 +404,14 @@ function TransactionsContent() {
   return (
     <div className="min-h-screen bg-black">
       <Navigation />
+
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-8 gap-4 flex-wrap">
           <div>
             <h1 className="text-4xl font-bold text-white mb-2">Transações</h1>
-            <p className="text-gray-400">Histórico completo de todas as transações</p>
+            <p className="text-[#94a3b8]">Histórico completo de todas as transações</p>
           </div>
+
           <Button
             onClick={() => setShowForm(!showForm)}
             className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl flex items-center gap-2"
@@ -380,27 +421,33 @@ function TransactionsContent() {
           </Button>
         </div>
 
-        {/* Filters */}
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <CompactFilterBar
+          search={search}
+          onSearchChange={setSearch}
+          onToggleFilters={() => setShowFilters((prev) => !prev)}
+          onClear={() => {
+            setCategoryFilter('')
+            setSearch('')
+            setTypeFilter('all')
+            setMonth('')
+            setStartDate('')
+            setEndDate('')
+          }}
+          showFilters={showFilters}
+          placeholder="Pesquisar por descrição ou categoria"
+          searchClassName="lg:max-w-md"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
             <div className="space-y-2">
               <Label className="text-gray-300 font-semibold">Categoria</Label>
               <Input
-                placeholder="Ex: Barbearia, Loja, Pessoal"
+                placeholder="Ex: Barbearia"
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                className="bg-[#1a263d] border-[#2a3650] rounded-xl text-white placeholder:text-[#64748b]"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Pesquisar</Label>
-              <Input
-                placeholder="Descrição ou categoria"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
-              />
-            </div>
+
             <div className="space-y-2">
               <Label className="text-gray-300 font-semibold">Mês</Label>
               <Input
@@ -413,27 +460,10 @@ function TransactionsContent() {
                     setEndDate('')
                   }
                 }}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
+                className="bg-[#1a263d] border-[#2a3650] rounded-xl text-white"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Tipo</Label>
-              <Select
-                value={typeFilter}
-                onValueChange={(value: 'all' | 'income' | 'expense') => setTypeFilter(value)}
-              >
-                <SelectTrigger className="bg-gray-800 border-gray-700 rounded-xl text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-gray-800 border-gray-700">
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="income">Receita</SelectItem>
-                  <SelectItem value="expense">Despesa</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+
             <div className="space-y-2">
               <Label className="text-gray-300 font-semibold">Data inicial</Label>
               <Input
@@ -443,9 +473,10 @@ function TransactionsContent() {
                   setStartDate(e.target.value)
                   if (e.target.value) setMonth('')
                 }}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
+                className="bg-[#1a263d] border-[#2a3650] rounded-xl text-white"
               />
             </div>
+
             <div className="space-y-2">
               <Label className="text-gray-300 font-semibold">Data final</Label>
               <Input
@@ -455,34 +486,35 @@ function TransactionsContent() {
                   setEndDate(e.target.value)
                   if (e.target.value) setMonth('')
                 }}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
+                className="bg-[#1a263d] border-[#2a3650] rounded-xl text-white"
               />
             </div>
-          </div>
-          <div className="flex gap-3 mt-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setCategoryFilter('')
-                setSearch('')
-                setTypeFilter('all')
-                setMonth('')
-                setStartDate('')
-                setEndDate('')
-              }}
-            >
-              Limpar filtros
-            </Button>
-          </div>
-        </div>
 
-        {/* Form */}
+            <div className="space-y-2">
+              <Label className="text-gray-300 font-semibold">Tipo</Label>
+              <Select
+                value={typeFilter}
+                onValueChange={(value: 'all' | 'income' | 'expense') => setTypeFilter(value)}
+              >
+                <SelectTrigger className="bg-[#1a263d] border-[#2a3650] rounded-xl text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#111827] border-[#2a3650]">
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="income">Receita</SelectItem>
+                  <SelectItem value="expense">Despesa</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CompactFilterBar>
+
         {showForm && (
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
+          <div className="bg-[#08152d] rounded-2xl border border-[#1f2a44] p-6 mb-8">
             <h2 className="text-2xl font-bold text-white mb-6">
               {editingId ? 'Editar' : 'Adicionar'} Transação
             </h2>
+
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
@@ -494,9 +526,10 @@ function TransactionsContent() {
                     value={formData.amount}
                     onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                    className="bg-[#1a263d] border-[#2a3650] rounded-xl px-4 py-3 text-white placeholder:text-[#64748b]"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Tipo</Label>
                   <Select
@@ -505,15 +538,16 @@ function TransactionsContent() {
                       setFormData({ ...formData, type: value })
                     }
                   >
-                    <SelectTrigger className="bg-gray-800 border-gray-700 rounded-xl text-white">
+                    <SelectTrigger className="bg-[#1a263d] border-[#2a3650] rounded-xl text-white">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-gray-800 border-gray-700">
+                    <SelectContent className="bg-[#111827] border-[#2a3650]">
                       <SelectItem value="income">Receita</SelectItem>
                       <SelectItem value="expense">Despesa</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Categoria</Label>
                   <Input
@@ -521,19 +555,20 @@ function TransactionsContent() {
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                    className="bg-[#1a263d] border-[#2a3650] rounded-xl px-4 py-3 text-white placeholder:text-[#64748b]"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Método de Pagamento</Label>
                   <Select
                     value={formData.payment_method}
                     onValueChange={(value) => setFormData({ ...formData, payment_method: value })}
                   >
-                    <SelectTrigger className="bg-gray-800 border-gray-700 rounded-xl text-white">
+                    <SelectTrigger className="bg-[#1a263d] border-[#2a3650] rounded-xl text-white">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-gray-800 border-gray-700">
+                    <SelectContent className="bg-[#111827] border-[#2a3650]">
                       <SelectItem value="cash">Dinheiro</SelectItem>
                       <SelectItem value="card">Cartão</SelectItem>
                       <SelectItem value="transfer">Transferência</SelectItem>
@@ -541,6 +576,7 @@ function TransactionsContent() {
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-gray-300 font-semibold">Data</Label>
                   <Input
@@ -548,30 +584,33 @@ function TransactionsContent() {
                     value={formData.date}
                     onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
+                    className="bg-[#1a263d] border-[#2a3650] rounded-xl px-4 py-3 text-white"
                   />
                 </div>
               </div>
+
               <div className="space-y-2">
                 <Label className="text-gray-300 font-semibold">Descrição</Label>
                 <Input
                   placeholder="Descrição da transação"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                  className="bg-[#1a263d] border-[#2a3650] rounded-xl px-4 py-3 text-white placeholder:text-[#64748b]"
                 />
               </div>
-              <div className="flex gap-3">
+
+              <div className="flex gap-3 flex-wrap">
                 <Button
                   type="submit"
                   className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl transition"
                 >
                   {editingId ? 'Atualizar' : 'Adicionar'}
                 </Button>
+
                 <Button
                   type="button"
                   onClick={resetForm}
-                  className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-6 py-3 rounded-xl"
+                  className="border border-[#2a3650] bg-black text-white hover:bg-[#111827] px-6 py-3 rounded-xl"
                 >
                   Cancelar
                 </Button>
@@ -580,11 +619,10 @@ function TransactionsContent() {
           </div>
         )}
 
-        {/* Transactions Table */}
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
+        <div className="bg-[#08152d] rounded-2xl border border-[#1f2a44] overflow-hidden shadow-xl">
           <div className="overflow-x-auto">
             <Table>
-              <TableHeader className="bg-gray-800/50 border-b border-gray-800">
+              <TableHeader className="bg-[#101b34] border-b border-[#1f2a44]">
                 <TableRow>
                   <TableHead className="text-gray-300 font-semibold py-4">Data</TableHead>
                   <TableHead className="text-gray-300 font-semibold">Descrição</TableHead>
@@ -594,29 +632,36 @@ function TransactionsContent() {
                   <TableHead className="text-gray-300 font-semibold text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
+
               <TableBody>
                 {visibleTransactions.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-12">
-                      <p className="text-gray-400">Nenhuma transação registrada</p>
+                      <p className="text-[#64748b]">Nenhuma transação registrada</p>
                     </TableCell>
                   </TableRow>
                 ) : (
                   visibleTransactions.map((transaction) => (
                     <TableRow
                       key={transaction.id}
-                      className="border-b border-gray-800 hover:bg-gray-800/30 transition"
+                      className="border-b border-[#1f2a44] hover:bg-white/[0.02] transition"
                     >
-                      <TableCell className="text-gray-300 py-4">
+                      <TableCell className="text-[#cbd5e1] py-4">
                         {new Date(transaction.date).toLocaleDateString('pt-BR')}
                       </TableCell>
-                      <TableCell className="text-gray-300">{transaction.description}</TableCell>
-                      <TableCell className="text-gray-300 capitalize">
+
+                      <TableCell className="text-white">
+                        {transaction.description || '-'}
+                      </TableCell>
+
+                      <TableCell className="text-[#cbd5e1] capitalize">
                         {getCategoryName(transaction) || '-'}
                       </TableCell>
-                      <TableCell className="text-gray-300 capitalize">
+
+                      <TableCell className="text-[#cbd5e1] capitalize">
                         {formatPaymentMethod(transaction.payment_method)}
                       </TableCell>
+
                       <TableCell
                         className={`font-bold text-right ${
                           transaction.type === 'income' ? 'text-green-500' : 'text-red-500'
@@ -625,21 +670,23 @@ function TransactionsContent() {
                         {transaction.type === 'income' ? '+' : '-'}{' '}
                         {formatCurrency(transaction.amount, currency)}
                       </TableCell>
+
                       <TableCell className="text-right">
                         <div className="flex gap-2 justify-end">
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => handleEdit(transaction)}
-                            className="border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-amber-600 hover:border-amber-600/30 p-2 h-9 w-9"
+                            className="border-[#2a3650] bg-black text-gray-300 hover:bg-[#111827] hover:text-amber-500 p-2 h-9 w-9 rounded-lg"
                           >
                             <Edit className="w-4 h-4" />
                           </Button>
+
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => handleDelete(transaction.id)}
-                            className="border-gray-700 text-gray-400 hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/30 p-2 h-9 w-9"
+                            className="border-[#2a3650] bg-black text-gray-300 hover:bg-red-500/10 hover:text-red-500 p-2 h-9 w-9 rounded-lg"
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
