@@ -2,8 +2,20 @@
 
 import { useMemo, useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import {
+  CheckCircle2,
+  Edit,
+  FileText,
+  Plus,
+  Search,
+  Trash2,
+  WalletCards,
+  AlertTriangle,
+  BadgeCheck,
+} from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { Navigation } from '@/components/Navigation'
+import { AppStatCard } from '@/components/AppStatCard'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,7 +27,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
-import { FileText, Plus, Trash2, CheckCircle2, Edit, Search } from 'lucide-react'
 import { toast } from '@/hooks/useToast'
 
 type AccountStatus = 'pending' | 'paid' | 'overdue'
@@ -77,6 +88,7 @@ function formatDateBR(dateString?: string | null) {
 export default function BillsPage() {
   const router = useRouter()
   const { userId, loading: authLoading } = useAuth()
+
   const [bills, setBills] = useState<Bill[]>([])
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -107,9 +119,11 @@ export default function BillsPage() {
       const monthNumber = Number(monthStr)
       if (!year || !monthNumber) return { start: null, end: null }
       const lastDay = new Date(year, monthNumber, 0).getDate()
-      const start = `${yearStr}-${monthStr}-01`
-      const end = `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`
-      return { start, end }
+
+      return {
+        start: `${yearStr}-${monthStr}-01`,
+        end: `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`,
+      }
     }
 
     return {
@@ -123,6 +137,7 @@ export default function BillsPage() {
       router.push('/login')
       return
     }
+
     if (userId) {
       fetchProfileCurrency()
       fetchBills()
@@ -140,6 +155,7 @@ export default function BillsPage() {
 
     try {
       const table = activeTab === 'payable' ? 'accounts_payable' : 'accounts_receivable'
+
       let query = supabase
         .from(table)
         .select('*')
@@ -323,7 +339,6 @@ export default function BillsPage() {
       toast({ title: 'Sucesso', description: 'Conta salva com sucesso' })
     } catch (error) {
       const message = (error as any)?.message || JSON.stringify(error)
-      console.error('Erro ao salvar conta:', error)
       toast({
         title: 'Erro',
         description: message || 'Não foi possível salvar a conta',
@@ -365,6 +380,7 @@ export default function BillsPage() {
       recurrence_count: bill.recurrence_count?.toString() || '',
       recurrence_end_date: normalizeDateOnly(bill.recurrence_end_date),
     })
+
     setEditingId(bill.id)
     setShowForm(true)
   }
@@ -376,8 +392,9 @@ export default function BillsPage() {
       const table = activeTab === 'payable' ? 'accounts_payable' : 'accounts_receivable'
       await supabase.from(table).delete().eq('id', id)
       fetchBills()
-    } catch (error) {
-      console.error('Erro ao deletar:', error)
+      toast({ title: 'Sucesso', description: 'Conta removida com sucesso' })
+    } catch {
+      toast({ title: 'Erro', description: 'Erro ao deletar conta', variant: 'destructive' })
     }
   }
 
@@ -395,8 +412,9 @@ export default function BillsPage() {
         .eq('id', id)
 
       fetchBills()
-    } catch (error) {
-      console.error('Erro ao atualizar status:', error)
+      toast({ title: 'Sucesso', description: 'Status atualizado com sucesso' })
+    } catch {
+      toast({ title: 'Erro', description: 'Erro ao atualizar status', variant: 'destructive' })
     }
   }
 
@@ -408,56 +426,95 @@ export default function BillsPage() {
     .reduce((sum, b) => sum + b.amount, 0)
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-app">
       <Navigation />
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="flex justify-between items-center mb-8 gap-4 flex-wrap">
+
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        <section className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h1 className="text-4xl font-bold text-white mb-2">Contas</h1>
-            <p className="text-gray-400">Gerenciamento de Contas a Pagar e Receber</p>
+            <div className="premium-chip mb-4">Gestão de contas</div>
+            <h1 className="text-3xl font-bold text-white sm:text-4xl">Contas</h1>
+            <p className="mt-2 text-slate-400">Controle contas a pagar e a receber com visão clara</p>
           </div>
+
           <Button
             onClick={() => setShowForm(!showForm)}
-            className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl flex items-center gap-2"
+            className="rounded-2xl border-0 bg-gradient-to-r from-blue-600 via-violet-600 to-purple-600 px-6 py-3 text-white hover:opacity-95"
           >
-            <Plus className="w-5 h-5" />
+            <Plus className="mr-2 h-5 w-5" />
             Nova Conta
           </Button>
-        </div>
+        </section>
 
-        <div className="flex gap-4 mb-6 border-b border-gray-800">
+        <section className="mb-6 flex gap-3 border-b border-white/10">
           {(['payable', 'receivable'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-6 py-3 font-medium text-lg transition-colors border-b-2 ${
+              className={`rounded-t-2xl px-5 py-3 text-sm font-semibold transition ${
                 activeTab === tab
-                  ? 'text-amber-600 border-amber-600'
-                  : 'text-gray-400 border-transparent hover:text-gray-300'
+                  ? 'border border-b-0 border-white/10 bg-white/5 text-white'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
-              {tab === 'payable' ? 'A Pagar' : 'A Receber'}
+              {tab === 'payable' ? 'A pagar' : 'A receber'}
             </button>
           ))}
-        </div>
+        </section>
 
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-4 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <section className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <AppStatCard
+            title={`Total ${activeTab === 'payable' ? 'a pagar' : 'a receber'}`}
+            value={formatCurrency(totalAmount, currency)}
+            subtitle="Pendentes e vencidas"
+            icon={WalletCards}
+            valueClassName="text-amber-400"
+          />
+          <AppStatCard
+            title="Pendentes"
+            value={pendingBills.length}
+            subtitle="Aguardando pagamento"
+            icon={FileText}
+            valueClassName="text-rose-400"
+          />
+          <AppStatCard
+            title="Vencidas"
+            value={overdueBills.length}
+            subtitle="Exigem atenção"
+            icon={AlertTriangle}
+            valueClassName="text-orange-400"
+          />
+          <AppStatCard
+            title="Pagas"
+            value={paidBills.length}
+            subtitle="Quitadas com sucesso"
+            icon={BadgeCheck}
+            valueClassName="text-emerald-400"
+          />
+        </section>
+
+        <section className="premium-panel mb-8 p-6">
+          <div className="mb-5">
+            <h2 className="text-xl font-semibold text-white">Filtros</h2>
+            <p className="mt-1 text-sm text-slate-400">Busque e organize suas contas por período e status</p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
             <div className="md:col-span-2">
-              <Label className="text-gray-300 text-sm mb-2 block">Pesquisar</Label>
+              <Label className="mb-2 block text-sm text-slate-300">Pesquisar</Label>
               <div className="relative">
-                <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
                 <Input
-                  placeholder="Buscar por descrição, fornecedor ou cliente"
+                  placeholder="Descrição, fornecedor ou cliente"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="bg-gray-800 border-gray-700 text-white rounded-xl pl-10"
+                  className="h-11 rounded-2xl border-white/10 bg-slate-950/50 pl-10 text-white"
                 />
               </div>
             </div>
 
             <div>
-              <Label className="text-gray-300 text-sm mb-2 block">Mês</Label>
+              <Label className="mb-2 block text-sm text-slate-300">Mês</Label>
               <Input
                 type="month"
                 value={month}
@@ -468,12 +525,12 @@ export default function BillsPage() {
                     setEndDate('')
                   }
                 }}
-                className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
               />
             </div>
 
             <div>
-              <Label className="text-gray-300 text-sm mb-2 block">Data inicial</Label>
+              <Label className="mb-2 block text-sm text-slate-300">Data inicial</Label>
               <Input
                 type="date"
                 value={startDate}
@@ -481,20 +538,20 @@ export default function BillsPage() {
                   setStartDate(e.target.value)
                   if (e.target.value) setMonth('')
                 }}
-                className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
               />
             </div>
 
             <div>
-              <Label className="text-gray-300 text-sm mb-2 block">Status</Label>
+              <Label className="mb-2 block text-sm text-slate-300">Status</Label>
               <Select
                 value={statusFilter}
                 onValueChange={(value: 'all' | AccountStatus) => setStatusFilter(value)}
               >
-                <SelectTrigger className="bg-gray-800 border-gray-700 text-white rounded-xl">
+                <SelectTrigger className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-gray-800 border-gray-700">
+                <SelectContent className="border-white/10 bg-slate-900 text-white">
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="pending">Pendente</SelectItem>
                   <SelectItem value="overdue">Vencido</SelectItem>
@@ -504,9 +561,9 @@ export default function BillsPage() {
             </div>
           </div>
 
-          <div className="flex gap-3 mt-3 flex-wrap">
+          <div className="mt-4 flex flex-wrap items-end gap-3">
             <div className="w-full md:w-56">
-              <Label className="text-gray-300 text-sm mb-2 block">Data final</Label>
+              <Label className="mb-2 block text-sm text-slate-300">Data final</Label>
               <Input
                 type="date"
                 value={endDate}
@@ -514,58 +571,37 @@ export default function BillsPage() {
                   setEndDate(e.target.value)
                   if (e.target.value) setMonth('')
                 }}
-                className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
               />
             </div>
 
-            <div className="flex items-end gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setSearch('')
-                  setMonth('')
-                  setStartDate('')
-                  setEndDate('')
-                  setStatusFilter('all')
-                }}
-                className="border-gray-700 text-gray-300 hover:bg-gray-800"
-              >
-                Limpar filtros
-              </Button>
-            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setSearch('')
+                setMonth('')
+                setStartDate('')
+                setEndDate('')
+                setStatusFilter('all')
+              }}
+              className="rounded-2xl border-white/10 bg-slate-900/60 text-slate-200 hover:bg-slate-800"
+            >
+              Limpar filtros
+            </Button>
           </div>
-        </div>
+        </section>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <p className="text-gray-400 text-sm mb-2">
-              Total {activeTab === 'payable' ? 'A Pagar' : 'A Receber'}
-            </p>
-            <p className="text-3xl font-bold text-amber-600">
-              {formatCurrency(totalAmount, currency)}
-            </p>
-          </div>
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <p className="text-gray-400 text-sm mb-2">Pendente</p>
-            <p className="text-3xl font-bold text-red-500">{pendingBills.length}</p>
-          </div>
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <p className="text-gray-400 text-sm mb-2">Vencido</p>
-            <p className="text-3xl font-bold text-orange-500">{overdueBills.length}</p>
-          </div>
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <p className="text-gray-400 text-sm mb-2">Pago</p>
-            <p className="text-3xl font-bold text-green-500">{paidBills.length}</p>
-          </div>
-        </div>
-
-        {showForm && (
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
+        {showForm ? (
+          <section className="premium-panel mb-8 p-6">
             <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <h2 className="text-2xl font-bold text-white">
+                {editingId ? 'Editar conta' : 'Adicionar conta'}
+              </h2>
+
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label className="text-gray-300">
+                  <Label className="text-slate-300">
                     {activeTab === 'payable' ? 'Destinatário' : 'Pagador'}
                   </Label>
                   <Input
@@ -575,32 +611,32 @@ export default function BillsPage() {
                     value={formData.party_name}
                     onChange={(e) => setFormData({ ...formData, party_name: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                    className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-gray-300">Valor</Label>
+                  <Label className="text-slate-300">Valor</Label>
                   <Input
                     type="number"
                     placeholder="0.00"
                     value={formData.amount}
                     onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                    className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-gray-300">Método de Pagamento</Label>
+                  <Label className="text-slate-300">Método de pagamento</Label>
                   <Select
                     value={formData.payment_method}
                     onValueChange={(value) => setFormData({ ...formData, payment_method: value })}
                   >
-                    <SelectTrigger className="bg-gray-800 border-gray-700 text-white rounded-xl">
+                    <SelectTrigger className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-gray-800 border-gray-700">
+                    <SelectContent className="border-white/10 bg-slate-900 text-white">
                       <SelectItem value="pix">PIX</SelectItem>
                       <SelectItem value="card">Cartão</SelectItem>
                       <SelectItem value="transfer">Transferência</SelectItem>
@@ -610,54 +646,54 @@ export default function BillsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-gray-300">Data de Vencimento</Label>
+                  <Label className="text-slate-300">Data de vencimento</Label>
                   <Input
                     type="date"
                     value={formData.due_date}
                     onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                    className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
                   />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label className="text-gray-300">Descrição</Label>
+                <Label className="text-slate-300">Descrição</Label>
                 <Input
                   placeholder="Descrição"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                  className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
                 />
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <input
                   type="checkbox"
                   id="recurring"
                   checked={formData.is_recurring}
                   onChange={(e) => setFormData({ ...formData, is_recurring: e.target.checked })}
-                  className="rounded"
+                  className="h-4 w-4 rounded border-white/20 bg-slate-900"
                 />
-                <Label htmlFor="recurring" className="text-gray-300">
-                  Recorrente
+                <Label htmlFor="recurring" className="text-slate-300">
+                  Conta recorrente
                 </Label>
               </div>
 
-              {formData.is_recurring && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {formData.is_recurring ? (
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
                   <div className="space-y-2">
-                    <Label className="text-gray-300">Intervalo</Label>
+                    <Label className="text-slate-300">Intervalo</Label>
                     <Select
                       value={formData.recurrence_interval}
                       onValueChange={(value) =>
                         setFormData({ ...formData, recurrence_interval: value })
                       }
                     >
-                      <SelectTrigger className="bg-gray-800 border-gray-700 text-white rounded-xl">
+                      <SelectTrigger className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="bg-gray-800 border-gray-700">
+                      <SelectContent className="border-white/10 bg-slate-900 text-white">
                         <SelectItem value="weekly">Semanal</SelectItem>
                         <SelectItem value="monthly">Mensal</SelectItem>
                         <SelectItem value="quarterly">Trimestral</SelectItem>
@@ -667,7 +703,7 @@ export default function BillsPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label className="text-gray-300">Quantidade</Label>
+                    <Label className="text-slate-300">Quantidade</Label>
                     <Input
                       type="number"
                       placeholder="Ex: 12"
@@ -675,29 +711,29 @@ export default function BillsPage() {
                       onChange={(e) =>
                         setFormData({ ...formData, recurrence_count: e.target.value })
                       }
-                      className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                      className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label className="text-gray-300">Data Final</Label>
+                    <Label className="text-slate-300">Data final</Label>
                     <Input
                       type="date"
                       value={formData.recurrence_end_date}
                       onChange={(e) =>
                         setFormData({ ...formData, recurrence_end_date: e.target.value })
                       }
-                      className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                      className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
                     />
                   </div>
                 </div>
-              )}
+              ) : null}
 
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <Button
                   type="submit"
                   disabled={isSubmitting}
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl"
+                  className="rounded-2xl border-0 bg-gradient-to-r from-blue-600 via-violet-600 to-purple-600 px-6 py-3 text-white hover:opacity-95"
                 >
                   {isSubmitting
                     ? editingId
@@ -711,26 +747,26 @@ export default function BillsPage() {
                 <Button
                   type="button"
                   onClick={resetForm}
-                  className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-6 py-3 rounded-xl"
+                  className="rounded-2xl border border-white/10 bg-slate-900/70 px-6 py-3 text-slate-200 hover:bg-slate-800"
                 >
                   Cancelar
                 </Button>
               </div>
             </form>
-          </div>
-        )}
+          </section>
+        ) : null}
 
-        <div className="space-y-4">
+        <section className="space-y-4">
           {visibleBills.length === 0 ? (
-            <div className="bg-gray-900 rounded-2xl border border-gray-800 p-12 text-center">
-              <FileText className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-              <p className="text-gray-400">Nenhuma conta registrada</p>
+            <div className="premium-panel p-12 text-center">
+              <FileText className="mx-auto mb-4 h-12 w-12 text-slate-600" />
+              <p className="text-slate-400">Nenhuma conta registrada</p>
             </div>
           ) : (
             visibleBills.map((bill) => (
               <div
                 key={bill.id}
-                className="bg-gray-900 rounded-2xl border border-gray-800 p-6 flex items-center justify-between hover:border-gray-700 transition"
+                className="premium-panel flex flex-col gap-5 p-6 lg:flex-row lg:items-center lg:justify-between"
               >
                 <div className="flex-1">
                   <h3 className="text-lg font-semibold text-white">
@@ -739,41 +775,43 @@ export default function BillsPage() {
                       'Conta'}
                   </h3>
 
-                  {(bill.supplier_name || bill.client_name) && (
-                    <p className="text-gray-500 text-sm">
+                  {(bill.supplier_name || bill.client_name) ? (
+                    <p className="mt-1 text-sm text-slate-500">
                       {activeTab === 'payable' ? bill.supplier_name : bill.client_name}
                     </p>
-                  )}
+                  ) : null}
 
-                  <p className="text-gray-400 text-sm">
+                  <p className="mt-2 text-sm text-slate-400">
                     Vencimento: {formatDateBR(bill.due_date)}
                   </p>
 
-                  {bill.is_recurring && (
-                    <p className="text-amber-600 text-sm">Recorrente: {bill.recurrence_interval}</p>
-                  )}
+                  {bill.is_recurring ? (
+                    <p className="mt-2 text-sm text-amber-400">
+                      Recorrente: {bill.recurrence_interval}
+                    </p>
+                  ) : null}
                 </div>
 
-                <div className="flex items-center gap-6">
+                <div className="flex flex-wrap items-center gap-3 lg:justify-end">
                   <span
                     className={`text-2xl font-bold ${
                       bill.status === 'paid'
-                        ? 'text-green-500'
+                        ? 'text-emerald-400'
                         : bill.status === 'overdue'
-                          ? 'text-orange-500'
-                          : 'text-red-500'
+                          ? 'text-orange-400'
+                          : 'text-rose-400'
                     }`}
                   >
                     {formatCurrency(bill.amount, currency)}
                   </span>
 
                   <span
-                    className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    className={`rounded-full px-3 py-1 text-sm font-medium ${
                       bill.status === 'paid'
-                        ? 'bg-green-500/10 text-green-400'
+                        ? 'bg-emerald-500/10 text-emerald-300'
                         : bill.status === 'overdue'
-                          ? 'bg-orange-500/10 text-orange-400'
-                          : 'bg-red-500/10 text-red-400'
+                          ? 'bg-orange-500/10 text-orange-300'
+                          : 'bg-rose-500/10 text-rose-300'
                     }`}
                   >
                     {bill.status === 'paid'
@@ -786,33 +824,33 @@ export default function BillsPage() {
                   <Button
                     size="sm"
                     onClick={() => handleEdit(bill)}
-                    className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/30 rounded-lg"
+                    className="h-10 rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 text-blue-300 hover:bg-blue-500/15"
                   >
-                    <Edit className="w-4 h-4" />
+                    <Edit className="h-4 w-4" />
                   </Button>
 
-                  {(bill.status === 'pending' || bill.status === 'overdue') && (
+                  {(bill.status === 'pending' || bill.status === 'overdue') ? (
                     <Button
                       size="sm"
                       onClick={() => handleMarkAsPaid(bill.id)}
-                      className="bg-green-600/20 hover:bg-green-600/30 text-green-400 border border-green-600/30 rounded-lg"
+                      className="h-10 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 text-emerald-300 hover:bg-emerald-500/15"
                     >
-                      <CheckCircle2 className="w-4 h-4" />
+                      <CheckCircle2 className="h-4 w-4" />
                     </Button>
-                  )}
+                  ) : null}
 
                   <Button
                     size="sm"
                     onClick={() => handleDelete(bill.id)}
-                    className="bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 rounded-lg"
+                    className="h-10 rounded-xl border border-red-500/20 bg-red-500/10 px-3 text-red-300 hover:bg-red-500/15"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
             ))
           )}
-        </div>
+        </section>
       </main>
     </div>
   )
