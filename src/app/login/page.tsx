@@ -1,21 +1,24 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
+import { AlertCircle, ArrowRight, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { AlertCircle, ArrowRight } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
 export default function LoginPage() {
+  const router = useRouter()
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [showResend, setShowResend] = useState(false)
-  const router = useRouter()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -52,29 +55,68 @@ export default function LoginPage() {
       }
 
       const userId = signInData.user.id
+      const fallbackName = normalizedEmail.split('@')[0] || 'Usuário'
 
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('users')
-        .select('id, email')
+        .select('id, email, name, timezone, currency')
         .eq('id', userId)
-        .single()
+        .maybeSingle()
+
+      if (profileError) {
+        throw profileError
+      }
 
       if (!profile) {
-        const fallbackName = normalizedEmail.split('@')[0] || 'Usuário'
-        await supabase.from('users').insert([
+        const { error: insertError } = await supabase.from('users').insert([
           {
             id: userId,
             email: normalizedEmail,
-            name: fallbackName,
+            name: '',
+            timezone: 'America/Sao_Paulo',
+            currency: 'BRL',
           },
         ])
+
+        if (insertError) {
+          const { error: fallbackInsertError } = await supabase.from('users').upsert([
+            {
+              id: userId,
+              email: normalizedEmail,
+              name: fallbackName,
+              timezone: 'America/Sao_Paulo',
+              currency: 'BRL',
+            },
+          ])
+
+          if (fallbackInsertError) throw fallbackInsertError
+
+          localStorage.setItem('user_id', userId)
+          localStorage.setItem('user_email', normalizedEmail)
+          localStorage.setItem('onboarding_complete', '1')
+          router.push('/dashboard')
+          return
+        }
+
+        localStorage.setItem('user_id', userId)
+        localStorage.setItem('user_email', normalizedEmail)
+        localStorage.removeItem('onboarding_complete')
+        router.push('/onboarding')
+        return
       }
 
       localStorage.setItem('user_id', userId)
       localStorage.setItem('user_email', normalizedEmail)
 
-      const onboardingComplete = localStorage.getItem('onboarding_complete')
-      router.push(onboardingComplete ? '/dashboard' : '/onboarding')
+      const hasCompletedProfile = !!profile.name?.trim()
+
+      if (hasCompletedProfile) {
+        localStorage.setItem('onboarding_complete', '1')
+        router.push('/dashboard')
+      } else {
+        localStorage.removeItem('onboarding_complete')
+        router.push('/onboarding')
+      }
     } catch (err: any) {
       setError(err.message || 'Erro ao fazer login')
     } finally {
@@ -104,7 +146,7 @@ export default function LoginPage() {
     })
 
     if (resendError) {
-      setError('Erro ao reenviar confirmação: ' + resendError.message)
+      setError(`Erro ao reenviar confirmação: ${resendError.message}`)
       return
     }
 
@@ -112,44 +154,52 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center p-4">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 right-20 w-96 h-96 bg-amber-600/5 blur-3xl rounded-full"></div>
-        <div className="absolute bottom-20 left-20 w-96 h-96 bg-amber-600/5 blur-3xl rounded-full"></div>
+    <div className="bg-app relative flex min-h-screen items-center justify-center overflow-hidden p-4">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute right-[-100px] top-[-60px] h-72 w-72 rounded-full bg-blue-600/10 blur-3xl" />
+        <div className="absolute bottom-[-80px] left-[-80px] h-72 w-72 rounded-full bg-violet-600/10 blur-3xl" />
       </div>
 
-      <div className="w-full max-w-md relative z-10">
-        <div className="bg-gray-900 rounded-3xl border border-gray-800 p-8 shadow-2xl">
-          <div className="flex justify-center mb-8">
-            <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-lg shadow-amber-600/20">
-              <img
+      <div className="relative z-10 w-full max-w-md">
+        <div className="premium-panel p-8 sm:p-10">
+          <div className="mb-8 flex flex-col items-center">
+            <div className="mb-5 flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-blue-500/20 to-purple-500/20 shadow-lg shadow-purple-500/10">
+              <Image
                 src="/logo.png"
                 alt="AssistentePro"
-                className="w-full h-full object-cover"
+                width={38}
+                height={38}
+                className="h-10 w-10 object-contain"
+                priority
               />
             </div>
+
+            <div className="premium-chip mb-4">
+              <Sparkles className="mr-2 h-3.5 w-3.5" />
+              Acesse sua conta
+            </div>
+
+            <h1 className="text-center text-3xl font-bold text-white">AssistentePro</h1>
+            <p className="mt-2 text-center text-sm text-slate-400">premium fintech dark</p>
           </div>
 
-          <h1 className="text-3xl font-bold text-white text-center mb-2">AssistentePro</h1>
-          <p className="text-gray-400 text-center mb-8">assistente pessoal</p>
-
-          <form onSubmit={handleLogin} className="space-y-6">
-            {error && (
-              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-red-400 text-sm">{error}</p>
+          <form onSubmit={handleLogin} className="space-y-5">
+            {error ? (
+              <div className="flex items-start gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 p-4">
+                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
+                <p className="text-sm text-red-300">{error}</p>
               </div>
-            )}
+            ) : null}
 
-            {info && (
-              <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4 flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
-                <p className="text-green-400 text-sm">{info}</p>
+            {info ? (
+              <div className="flex items-start gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-emerald-400" />
+                <p className="text-sm text-emerald-300">{info}</p>
               </div>
-            )}
+            ) : null}
 
-            <div className="space-y-3">
-              <Label htmlFor="email" className="text-gray-300 font-medium">
+            <div className="space-y-2">
+              <Label htmlFor="email" className="text-slate-300">
                 Email
               </Label>
               <Input
@@ -159,12 +209,12 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500 focus:ring-amber-600/50 focus:border-amber-600"
+                className="h-12 rounded-2xl border-white/10 bg-slate-950/50 text-white placeholder:text-slate-500"
               />
             </div>
 
-            <div className="space-y-3">
-              <Label htmlFor="password" className="text-gray-300 font-medium">
+            <div className="space-y-2">
+              <Label htmlFor="password" className="text-slate-300">
                 Senha
               </Label>
               <Input
@@ -174,45 +224,42 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500 focus:ring-amber-600/50 focus:border-amber-600"
+                className="h-12 rounded-2xl border-white/10 bg-slate-950/50 text-white placeholder:text-slate-500"
               />
             </div>
 
             <Button
               type="submit"
               disabled={loading}
-              className="w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 rounded-xl transition-all duration-200 flex items-center justify-center gap-2 mt-8"
+              className="h-12 w-full rounded-2xl border-0 bg-gradient-to-r from-blue-600 via-violet-600 to-purple-600 text-white hover:opacity-95"
             >
               {loading ? 'Entrando...' : 'Entrar'}
-              {!loading && <ArrowRight className="w-4 h-4" />}
+              {!loading ? <ArrowRight className="ml-2 h-4 w-4" /> : null}
             </Button>
 
-            {showResend && (
+            {showResend ? (
               <Button
                 type="button"
                 variant="outline"
                 onClick={handleResendConfirmation}
-                className="w-full border-amber-600 text-amber-400 hover:text-amber-300 hover:bg-amber-600/10"
+                className="h-12 w-full rounded-2xl border-amber-500/30 bg-amber-500/5 text-amber-300 hover:bg-amber-500/10"
               >
                 Reenviar confirmação de email
               </Button>
-            )}
+            ) : null}
 
-            <div className="text-center pt-4 border-t border-gray-800">
-              <p className="text-gray-400 text-sm">
+            <div className="border-t border-white/10 pt-4 text-center">
+              <p className="text-sm text-slate-400">
                 Não tem conta?{' '}
-                <a
-                  href="/register"
-                  className="text-amber-600 hover:text-amber-500 font-semibold transition-colors"
-                >
+                <Link href="/register" className="font-semibold text-blue-400 hover:text-blue-300">
                   Registre-se
-                </a>
+                </Link>
               </p>
             </div>
           </form>
         </div>
 
-        <p className="text-center text-gray-500 text-xs mt-8">
+        <p className="mt-8 text-center text-xs text-slate-500">
           © 2026 AssistentePro. Todos os direitos reservados.
         </p>
       </div>
