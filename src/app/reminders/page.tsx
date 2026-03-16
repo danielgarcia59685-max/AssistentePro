@@ -2,8 +2,19 @@
 
 import { useMemo, useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import {
+  Bell,
+  CheckCircle2,
+  Clock,
+  Edit,
+  Plus,
+  Trash2,
+  CalendarClock,
+  ListTodo,
+} from 'lucide-react'
 import useAuth from '@/hooks/useAuth'
 import { Navigation } from '@/components/Navigation'
+import { AppStatCard } from '@/components/AppStatCard'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,7 +26,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
-import { Bell, Plus, Trash2, CheckCircle2, Clock, Edit } from 'lucide-react'
 import { toast } from '@/hooks/useToast'
 
 interface Reminder {
@@ -49,6 +59,7 @@ function formatDateBR(dateString: string) {
 export default function RemindersPage() {
   const router = useRouter()
   const { userId, loading: authLoading } = useAuth()
+
   const [reminders, setReminders] = useState<Reminder[]>([])
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -73,10 +84,10 @@ export default function RemindersPage() {
       if (!year || !monthNumber) return { start: null, end: null }
 
       const lastDay = new Date(year, monthNumber, 0).getDate()
-      const start = `${yearStr}-${monthStr}-01`
-      const end = `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`
-
-      return { start, end }
+      return {
+        start: `${yearStr}-${monthStr}-01`,
+        end: `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`,
+      }
     }
 
     return {
@@ -106,17 +117,9 @@ export default function RemindersPage() {
         .eq('user_id', userId)
         .order('due_date', { ascending: true })
 
-      if (dateRange.start) {
-        query = query.gte('due_date', dateRange.start)
-      }
-
-      if (dateRange.end) {
-        query = query.lte('due_date', dateRange.end)
-      }
-
-      if (statusFilter !== 'all') {
-        query = query.eq('status', statusFilter)
-      }
+      if (dateRange.start) query = query.gte('due_date', dateRange.start)
+      if (dateRange.end) query = query.lte('due_date', dateRange.end)
+      if (statusFilter !== 'all') query = query.eq('status', statusFilter)
 
       const { data, error } = await query
 
@@ -181,15 +184,6 @@ export default function RemindersPage() {
           .eq('id', editingId)
 
         if (error) {
-          console.error('Erro ao atualizar lembrete:', {
-            message: (error as any)?.message,
-            details: (error as any)?.details,
-            hint: (error as any)?.hint,
-            code: (error as any)?.code,
-            status: (error as any)?.status,
-            raw: error,
-          })
-
           toast({
             title: 'Erro',
             description: (error as any)?.message || 'Falha ao atualizar compromisso',
@@ -215,15 +209,6 @@ export default function RemindersPage() {
         ])
 
         if (error) {
-          console.error('Erro ao criar lembrete:', {
-            message: (error as any)?.message,
-            details: (error as any)?.details,
-            hint: (error as any)?.hint,
-            code: (error as any)?.code,
-            status: (error as any)?.status,
-            raw: error,
-          })
-
           toast({
             title: 'Erro',
             description: (error as any)?.message || 'Falha ao criar compromisso',
@@ -236,8 +221,7 @@ export default function RemindersPage() {
       resetForm()
       fetchReminders()
       toast({ title: 'Sucesso', description: 'Compromisso salvo com sucesso' })
-    } catch (error) {
-      console.error('Erro ao salvar lembrete:', error)
+    } catch {
       toast({
         title: 'Erro',
         description: 'Não foi possível salvar o compromisso',
@@ -266,8 +250,9 @@ export default function RemindersPage() {
     try {
       await supabase.from('reminders').delete().eq('id', id)
       fetchReminders()
-    } catch (error) {
-      console.error('Erro ao deletar:', error)
+      toast({ title: 'Sucesso', description: 'Compromisso removido com sucesso' })
+    } catch {
+      toast({ title: 'Erro', description: 'Erro ao deletar compromisso', variant: 'destructive' })
     }
   }
 
@@ -277,8 +262,9 @@ export default function RemindersPage() {
     try {
       await supabase.from('reminders').update({ status: 'completed' }).eq('id', id)
       fetchReminders()
-    } catch (error) {
-      console.error('Erro ao atualizar:', error)
+      toast({ title: 'Sucesso', description: 'Compromisso concluído' })
+    } catch {
+      toast({ title: 'Erro', description: 'Erro ao atualizar compromisso', variant: 'destructive' })
     }
   }
 
@@ -300,49 +286,65 @@ export default function RemindersPage() {
   const upcomingCount = pendingReminders.filter((r) => r.due_date.split('T')[0] >= today).length
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-app">
       <Navigation />
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        <section className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h1 className="text-4xl font-bold text-white mb-2">Lembretes</h1>
-            <p className="text-gray-400">Mantenha-se atualizado com seus compromissos</p>
+            <div className="premium-chip mb-4">Agenda inteligente</div>
+            <h1 className="text-3xl font-bold text-white sm:text-4xl">Compromissos</h1>
+            <p className="mt-2 text-slate-400">Organize lembretes, tarefas e datas importantes</p>
           </div>
+
           <Button
             onClick={() => setShowForm(!showForm)}
-            className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl flex items-center gap-2"
+            className="rounded-2xl border-0 bg-gradient-to-r from-blue-600 via-violet-600 to-purple-600 px-6 py-3 text-white hover:opacity-95"
           >
-            <Plus className="w-5 h-5" />
-            Novo Lembrete
+            <Plus className="mr-2 h-5 w-5" />
+            Novo Compromisso
           </Button>
-        </div>
+        </section>
 
-        {/* Summary */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <p className="text-gray-400 text-sm mb-2">Total</p>
-            <p className="text-3xl font-bold text-white">{reminders.length}</p>
-          </div>
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <p className="text-gray-400 text-sm mb-2">Pendentes</p>
-            <p className="text-3xl font-bold text-red-500">{pendingReminders.length}</p>
-          </div>
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <p className="text-gray-400 text-sm mb-2">Concluídos</p>
-            <p className="text-3xl font-bold text-green-500">{completedReminders.length}</p>
-          </div>
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <p className="text-gray-400 text-sm mb-2">Próximos</p>
-            <p className="text-3xl font-bold text-blue-500">{upcomingCount}</p>
-          </div>
-        </div>
+        <section className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <AppStatCard
+            title="Total"
+            value={reminders.length}
+            subtitle="Todos os compromissos"
+            icon={ListTodo}
+          />
+          <AppStatCard
+            title="Pendentes"
+            value={pendingReminders.length}
+            subtitle="Aguardando conclusão"
+            icon={Clock}
+            valueClassName="text-amber-400"
+          />
+          <AppStatCard
+            title="Concluídos"
+            value={completedReminders.length}
+            subtitle="Itens finalizados"
+            icon={CheckCircle2}
+            valueClassName="text-emerald-400"
+          />
+          <AppStatCard
+            title="Próximos"
+            value={upcomingCount}
+            subtitle="Ainda por acontecer"
+            icon={CalendarClock}
+            valueClassName="text-blue-400"
+          />
+        </section>
 
-        {/* Filters */}
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <section className="premium-panel mb-8 p-6">
+          <div className="mb-5">
+            <h2 className="text-xl font-semibold text-white">Filtros</h2>
+            <p className="mt-1 text-sm text-slate-400">Filtre seus compromissos por data e status</p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <div className="space-y-2">
-              <Label className="text-gray-300">Mês</Label>
+              <Label className="text-slate-300">Mês</Label>
               <Input
                 type="month"
                 value={month}
@@ -353,11 +355,12 @@ export default function RemindersPage() {
                     setEndDate('')
                   }
                 }}
-                className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
               />
             </div>
+
             <div className="space-y-2">
-              <Label className="text-gray-300">Data inicial</Label>
+              <Label className="text-slate-300">Data inicial</Label>
               <Input
                 type="date"
                 value={startDate}
@@ -365,11 +368,12 @@ export default function RemindersPage() {
                   setStartDate(e.target.value)
                   if (e.target.value) setMonth('')
                 }}
-                className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
               />
             </div>
+
             <div className="space-y-2">
-              <Label className="text-gray-300">Data final</Label>
+              <Label className="text-slate-300">Data final</Label>
               <Input
                 type="date"
                 value={endDate}
@@ -377,19 +381,20 @@ export default function RemindersPage() {
                   setEndDate(e.target.value)
                   if (e.target.value) setMonth('')
                 }}
-                className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
               />
             </div>
+
             <div className="space-y-2">
-              <Label className="text-gray-300">Status</Label>
+              <Label className="text-slate-300">Status</Label>
               <Select
                 value={statusFilter}
                 onValueChange={(value: 'all' | 'pending' | 'completed') => setStatusFilter(value)}
               >
-                <SelectTrigger className="bg-gray-800 border-gray-700 text-white rounded-xl">
+                <SelectTrigger className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-gray-800 border-gray-700">
+                <SelectContent className="border-white/10 bg-slate-900 text-white">
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="pending">Pendente</SelectItem>
                   <SelectItem value="completed">Concluído</SelectItem>
@@ -397,7 +402,8 @@ export default function RemindersPage() {
               </Select>
             </div>
           </div>
-          <div className="flex gap-3 mt-4">
+
+          <div className="mt-5">
             <Button
               type="button"
               variant="outline"
@@ -407,61 +413,87 @@ export default function RemindersPage() {
                 setEndDate('')
                 setStatusFilter('all')
               }}
+              className="rounded-2xl border-white/10 bg-slate-900/60 text-slate-200 hover:bg-slate-800"
             >
               Limpar filtros
             </Button>
           </div>
-        </div>
+        </section>
 
-        {/* Form */}
-        {showForm && (
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
+        {showForm ? (
+          <section className="premium-panel mb-8 p-6">
             <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <h2 className="text-2xl font-bold text-white">
+                {editingId ? 'Editar compromisso' : 'Novo compromisso'}
+              </h2>
+
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label className="text-gray-300">Título</Label>
+                  <Label className="text-slate-300">Título</Label>
                   <Input
                     placeholder="Título do lembrete"
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                    className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
                   />
                 </div>
+
                 <div className="space-y-2">
-                  <Label className="text-gray-300">Data</Label>
+                  <Label className="text-slate-300">Data</Label>
                   <Input
                     type="date"
                     value={formData.due_date}
                     onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                    className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
                   />
                 </div>
+
                 <div className="space-y-2">
-                  <Label className="text-gray-300">Hora</Label>
+                  <Label className="text-slate-300">Hora</Label>
                   <Input
                     type="time"
                     value={formData.due_time}
                     onChange={(e) => setFormData({ ...formData, due_time: e.target.value })}
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                    className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
                   />
                 </div>
+
+                <div className="space-y-2">
+                  <Label className="text-slate-300">Tipo</Label>
+                  <Select
+                    value={formData.reminder_type}
+                    onValueChange={(value) => setFormData({ ...formData, reminder_type: value })}
+                  >
+                    <SelectTrigger className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="border-white/10 bg-slate-900 text-white">
+                      <SelectItem value="task">Tarefa</SelectItem>
+                      <SelectItem value="meeting">Reunião</SelectItem>
+                      <SelectItem value="payment">Pagamento</SelectItem>
+                      <SelectItem value="personal">Pessoal</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+
               <div className="space-y-2">
-                <Label className="text-gray-300">Descrição</Label>
+                <Label className="text-slate-300">Descrição</Label>
                 <Input
-                  placeholder="Descrição do lembrete"
+                  placeholder="Descrição do compromisso"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="bg-gray-800 border-gray-700 text-white rounded-xl"
+                  className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
                 />
               </div>
-              <div className="flex gap-3">
+
+              <div className="flex flex-wrap gap-3">
                 <Button
                   type="submit"
                   disabled={isSubmitting}
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl"
+                  className="rounded-2xl border-0 bg-gradient-to-r from-blue-600 via-violet-600 to-purple-600 px-6 py-3 text-white hover:opacity-95"
                 >
                   {isSubmitting
                     ? editingId
@@ -471,109 +503,113 @@ export default function RemindersPage() {
                       ? 'Atualizar'
                       : 'Adicionar'}
                 </Button>
+
                 <Button
                   type="button"
-                  onClick={() => resetForm()}
-                  className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-6 py-3 rounded-xl"
+                  onClick={resetForm}
+                  className="rounded-2xl border border-white/10 bg-slate-900/70 px-6 py-3 text-slate-200 hover:bg-slate-800"
                 >
                   Cancelar
                 </Button>
               </div>
             </form>
-          </div>
-        )}
+          </section>
+        ) : null}
 
-        {/* Reminders List */}
-        <div className="space-y-8">
-          {pendingReminders.length > 0 && (
+        <section className="space-y-8">
+          {pendingReminders.length > 0 ? (
             <div>
-              <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
-                <Clock className="w-6 h-6 text-amber-600" />
+              <h2 className="mb-4 flex items-center gap-2 text-2xl font-bold text-white">
+                <Clock className="h-6 w-6 text-amber-400" />
                 Pendentes
               </h2>
+
               <div className="space-y-3">
                 {pendingReminders.map((reminder) => (
                   <div
                     key={reminder.id}
-                    className="bg-gray-900 rounded-2xl border border-gray-800 p-6 flex items-center justify-between hover:border-gray-700 transition"
+                    className="premium-panel flex flex-col gap-4 p-6 lg:flex-row lg:items-center lg:justify-between"
                   >
                     <div className="flex-1">
                       <h3 className="text-lg font-semibold text-white">{reminder.title}</h3>
-                      <p className="text-gray-400 text-sm mt-1">{reminder.description}</p>
-                      <p className="text-gray-500 text-sm mt-2">
+                      <p className="mt-1 text-sm text-slate-400">{reminder.description}</p>
+                      <p className="mt-2 text-sm text-slate-500">
                         Vencimento: {formatDateBR(reminder.due_date)}
                         {reminder.due_time ? ` às ${reminder.due_time}` : ''}
                       </p>
                     </div>
-                    <div className="flex gap-2">
+
+                    <div className="flex flex-wrap gap-2">
                       <Button
                         size="sm"
                         onClick={() => handleEdit(reminder)}
-                        className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/30 rounded-lg"
+                        className="h-10 rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 text-blue-300 hover:bg-blue-500/15"
                       >
-                        <Edit className="w-4 h-4" />
+                        <Edit className="h-4 w-4" />
                       </Button>
                       <Button
                         size="sm"
                         onClick={() => handleMarkAsCompleted(reminder.id)}
-                        className="bg-green-600/20 hover:bg-green-600/30 text-green-400 border border-green-600/30 rounded-lg"
+                        className="h-10 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 text-emerald-300 hover:bg-emerald-500/15"
                       >
-                        <CheckCircle2 className="w-4 h-4" />
+                        <CheckCircle2 className="h-4 w-4" />
                       </Button>
                       <Button
                         size="sm"
                         onClick={() => handleDelete(reminder.id)}
-                        className="bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 rounded-lg"
+                        className="h-10 rounded-xl border border-red-500/20 bg-red-500/10 px-3 text-red-300 hover:bg-red-500/15"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-          )}
+          ) : null}
 
-          {completedReminders.length > 0 && (
+          {completedReminders.length > 0 ? (
             <div>
-              <h2 className="text-2xl font-bold text-gray-500 mb-4 flex items-center gap-2">
-                <CheckCircle2 className="w-6 h-6 text-green-600" />
+              <h2 className="mb-4 flex items-center gap-2 text-2xl font-bold text-slate-400">
+                <CheckCircle2 className="h-6 w-6 text-emerald-400" />
                 Concluídos
               </h2>
+
               <div className="space-y-3">
                 {completedReminders.map((reminder) => (
                   <div
                     key={reminder.id}
-                    className="bg-gray-900/50 rounded-2xl border border-gray-800 p-6 flex items-center justify-between opacity-75"
+                    className="premium-panel-soft flex flex-col gap-4 p-6 opacity-75 lg:flex-row lg:items-center lg:justify-between"
                   >
                     <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-400 line-through">
+                      <h3 className="text-lg font-semibold text-slate-400 line-through">
                         {reminder.title}
                       </h3>
-                      <p className="text-gray-500 text-sm mt-2">
+                      <p className="mt-2 text-sm text-slate-500">
                         Concluído em: {formatDateBR(reminder.due_date)}
                       </p>
                     </div>
+
                     <Button
                       size="sm"
                       onClick={() => handleDelete(reminder.id)}
-                      className="bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 rounded-lg"
+                      className="h-10 rounded-xl border border-red-500/20 bg-red-500/10 px-3 text-red-300 hover:bg-red-500/15"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 ))}
               </div>
             </div>
-          )}
+          ) : null}
 
-          {reminders.length === 0 && (
-            <div className="bg-gray-900 rounded-2xl border border-gray-800 p-12 text-center">
-              <Bell className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-              <p className="text-gray-400">Nenhum lembrete registrado</p>
+          {reminders.length === 0 ? (
+            <div className="premium-panel p-12 text-center">
+              <Bell className="mx-auto mb-4 h-12 w-12 text-slate-600" />
+              <p className="text-slate-400">Nenhum compromisso registrado</p>
             </div>
-          )}
-        </div>
+          ) : null}
+        </section>
       </main>
     </div>
   )
