@@ -39,7 +39,7 @@ function useAuth(): UseAuthReturn {
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
       if (!active) return
-      setSession(sess)
+      setSession(sess ?? null)
       setUser(sess?.user ?? null)
       setLoading(false)
     })
@@ -52,13 +52,23 @@ function useAuth(): UseAuthReturn {
 
   const loginWithEmail = useCallback(async (email: string, password: string) => {
     if (!supabase) return
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
+
     if (error) throw error
   }, [])
 
   const signUpWithEmail = useCallback(async (email: string, password: string) => {
     if (!supabase) return
-    const { error } = await supabase.auth.signUp({ email, password })
+
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+    })
+
     if (error) throw error
   }, [])
 
