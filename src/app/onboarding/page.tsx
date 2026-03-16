@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Sparkles, UserCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -40,6 +41,7 @@ export default function OnboardingPage() {
       }
 
       const userId = data.session.user.id
+
       const { data: profile } = await supabase
         .from('users')
         .select('name, timezone, currency')
@@ -75,6 +77,7 @@ export default function OnboardingPage() {
     }
 
     setSaving(true)
+
     try {
       const { data } = await supabase.auth.getSession()
       if (!data.session?.user) {
@@ -83,7 +86,8 @@ export default function OnboardingPage() {
       }
 
       const userId = data.session.user.id
-      await supabase
+
+      const { error: updateError } = await supabase
         .from('users')
         .update({
           name: formData.name.trim(),
@@ -91,6 +95,10 @@ export default function OnboardingPage() {
           currency: formData.currency,
         })
         .eq('id', userId)
+
+      if (updateError) {
+        throw updateError
+      }
 
       localStorage.setItem('onboarding_complete', '1')
       router.push('/dashboard')
@@ -103,46 +111,59 @@ export default function OnboardingPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="text-gray-400">Carregando...</div>
+      <div className="bg-app flex min-h-screen items-center justify-center">
+        <div className="premium-panel px-8 py-6 text-slate-300">Carregando...</div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-gray-900 rounded-3xl border border-gray-800 p-8">
-        <h1 className="text-2xl font-bold text-white mb-2">Vamos configurar seu perfil</h1>
-        <p className="text-gray-400 mb-6">Isso leva menos de 1 minuto.</p>
-
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-4">
-            <p className="text-red-400 text-sm">{error}</p>
+    <div className="bg-app flex min-h-screen items-center justify-center p-4">
+      <div className="w-full max-w-lg premium-panel p-8 sm:p-10">
+        <div className="mb-6">
+          <div className="premium-chip mb-4">
+            <Sparkles className="mr-2 h-3.5 w-3.5" />
+            Primeiro acesso
           </div>
-        )}
+
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 text-blue-300">
+            <UserCircle2 className="h-8 w-8" />
+          </div>
+
+          <h1 className="text-3xl font-bold text-white">Vamos configurar seu perfil</h1>
+          <p className="mt-2 text-sm text-slate-400">
+            Isso leva menos de 1 minuto e ajuda a personalizar sua experiência.
+          </p>
+        </div>
+
+        {error ? (
+          <div className="mb-5 rounded-2xl border border-red-500/20 bg-red-500/10 p-4">
+            <p className="text-sm text-red-300">{error}</p>
+          </div>
+        ) : null}
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-2">
-            <Label className="text-gray-300">Seu nome</Label>
+            <Label className="text-slate-300">Seu nome</Label>
             <Input
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               placeholder="Ex: Daniel"
-              className="bg-gray-800 border-gray-700 text-white rounded-xl"
+              className="h-12 rounded-2xl border-white/10 bg-slate-950/50 text-white"
               required
             />
           </div>
 
           <div className="space-y-2">
-            <Label className="text-gray-300">Fuso horário</Label>
+            <Label className="text-slate-300">Fuso horário</Label>
             <Select
               value={formData.timezone}
               onValueChange={(value) => setFormData({ ...formData, timezone: value })}
             >
-              <SelectTrigger className="bg-gray-800 border-gray-700 text-white rounded-xl">
+              <SelectTrigger className="h-12 rounded-2xl border-white/10 bg-slate-950/50 text-white">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-gray-800 border-gray-700">
+              <SelectContent className="border-white/10 bg-slate-900 text-white">
                 <SelectItem value="America/Sao_Paulo">Brasil (São Paulo)</SelectItem>
                 <SelectItem value="America/New_York">EUA (Nova York)</SelectItem>
                 <SelectItem value="Europe/Lisbon">Portugal (Lisboa)</SelectItem>
@@ -151,15 +172,15 @@ export default function OnboardingPage() {
           </div>
 
           <div className="space-y-2">
-            <Label className="text-gray-300">Moeda</Label>
+            <Label className="text-slate-300">Moeda</Label>
             <Select
               value={formData.currency}
               onValueChange={(value) => setFormData({ ...formData, currency: value })}
             >
-              <SelectTrigger className="bg-gray-800 border-gray-700 text-white rounded-xl">
+              <SelectTrigger className="h-12 rounded-2xl border-white/10 bg-slate-950/50 text-white">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-gray-800 border-gray-700">
+              <SelectContent className="border-white/10 bg-slate-900 text-white">
                 <SelectItem value="BRL">BRL — Real</SelectItem>
                 <SelectItem value="USD">USD — Dólar</SelectItem>
                 <SelectItem value="EUR">EUR — Euro</SelectItem>
@@ -170,7 +191,7 @@ export default function OnboardingPage() {
           <Button
             type="submit"
             disabled={saving}
-            className="w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 rounded-xl"
+            className="h-12 w-full rounded-2xl border-0 bg-gradient-to-r from-blue-600 via-violet-600 to-purple-600 text-white hover:opacity-95"
           >
             {saving ? 'Salvando...' : 'Concluir'}
           </Button>
