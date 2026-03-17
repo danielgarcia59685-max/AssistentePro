@@ -2,6 +2,8 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
+import { Edit, Plus, Search, Trash2, WalletCards } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,7 +14,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Edit, Trash2, Plus } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -22,6 +23,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Navigation } from '@/components/Navigation'
+import { AppStatCard } from '@/components/AppStatCard'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from '@/hooks/useToast'
@@ -39,7 +41,7 @@ interface Transaction {
 
 export default function TransactionsPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-black" />}>
+    <Suspense fallback={<div className="bg-app min-h-screen" />}>
       <TransactionsContent />
     </Suspense>
   )
@@ -49,6 +51,7 @@ function TransactionsContent() {
   const { userId, loading: authLoading } = useAuth()
   const searchParams = useSearchParams()
   const initializedFromQuery = useRef(false)
+
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -137,7 +140,6 @@ function TransactionsContent() {
 
   const fetchTransactions = async () => {
     if (!supabase || !userId) {
-      console.warn('Supabase não está configurado')
       toast({ title: 'Erro', description: 'Supabase não configurado', variant: 'destructive' })
       return
     }
@@ -149,22 +151,13 @@ function TransactionsContent() {
         .eq('user_id', userId)
         .order('date', { ascending: false })
 
-      if (typeFilter !== 'all') {
-        query = query.eq('type', typeFilter)
-      }
-
-      if (dateRange.start) {
-        query = query.gte('date', dateRange.start)
-      }
-
-      if (dateRange.end) {
-        query = query.lte('date', dateRange.end)
-      }
+      if (typeFilter !== 'all') query = query.eq('type', typeFilter)
+      if (dateRange.start) query = query.gte('date', dateRange.start)
+      if (dateRange.end) query = query.lte('date', dateRange.end)
 
       const { data, error } = await query
 
       if (error) {
-        console.error('Erro ao buscar transações:', error)
         toast({
           title: 'Erro',
           description: error.message || 'Falha ao buscar transações',
@@ -173,8 +166,7 @@ function TransactionsContent() {
       } else {
         setTransactions((data || []) as Transaction[])
       }
-    } catch (error) {
-      console.error('Erro ao buscar transações:', error)
+    } catch {
       toast({ title: 'Erro', description: 'Falha ao buscar transações', variant: 'destructive' })
     }
   }
@@ -203,6 +195,22 @@ function TransactionsContent() {
     return rows
   }, [transactions, categoryFilter, search])
 
+  const totals = useMemo(() => {
+    let income = 0
+    let expense = 0
+
+    for (const item of visibleTransactions) {
+      if (item.type === 'income') income += Number(item.amount) || 0
+      else expense += Number(item.amount) || 0
+    }
+
+    return {
+      income,
+      expense,
+      balance: income - expense,
+    }
+  }, [visibleTransactions])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!supabase || !userId) {
@@ -212,7 +220,6 @@ function TransactionsContent() {
 
     try {
       if (editingId) {
-        // Atualizar transação existente
         const updateResult = await supabase
           .from('transactions')
           .update({
@@ -244,7 +251,6 @@ function TransactionsContent() {
           }
         }
       } else {
-        // Inserir nova transação
         const insertResult = await supabase.from('transactions').insert([
           {
             user_id: userId,
@@ -280,7 +286,6 @@ function TransactionsContent() {
       resetForm()
       fetchTransactions()
     } catch (error: any) {
-      console.error('Erro ao salvar transação:', error)
       toast({
         title: 'Erro',
         description: error?.message || 'Falha ao salvar transação',
@@ -308,9 +313,7 @@ function TransactionsContent() {
     try {
       await supabase.from('transactions').delete().eq('id', id)
       fetchTransactions()
-    } catch (err) {
-      console.error('Erro ao deletar transação:', err)
-    }
+    } catch {}
   }
 
   const handleEdit = (transaction: Transaction) => {
@@ -346,8 +349,7 @@ function TransactionsContent() {
         .single()
 
       return created?.id || null
-    } catch (error) {
-      console.warn('Categorias não disponíveis:', error)
+    } catch {
       return null
     }
   }
@@ -362,47 +364,82 @@ function TransactionsContent() {
   }
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="bg-app min-h-screen">
       <Navigation />
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-4xl font-bold text-white mb-2">Transações</h1>
-            <p className="text-gray-400">Histórico completo de todas as transações</p>
-          </div>
-          <Button
-            onClick={() => setShowForm(!showForm)}
-            className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl flex items-center gap-2"
-          >
-            <Plus className="w-5 h-5" />
-            Nova Transação
-          </Button>
-        </div>
 
-        {/* Filters */}
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <main className="app-shell">
+        <section className="page-header">
+          <div>
+            <div className="premium-chip mb-4">Movimentações financeiras</div>
+            <h1 className="page-title">Transações</h1>
+            <p className="page-subtitle">
+              Gerencie entradas e saídas com filtros claros, edição rápida e visão resumida.
+            </p>
+          </div>
+
+          <div className="flex gap-3">
+            <Button onClick={() => setShowForm(!showForm)}>
+              <Plus className="h-4 w-4" />
+              Nova transação
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/reports">Relatórios</Link>
+            </Button>
+          </div>
+        </section>
+
+        <section className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <AppStatCard
+            title="Receitas filtradas"
+            value={formatCurrency(totals.income, currency)}
+            subtitle="Total de entradas"
+            valueClassName="metric-positive"
+          />
+          <AppStatCard
+            title="Despesas filtradas"
+            value={formatCurrency(totals.expense, currency)}
+            subtitle="Total de saídas"
+            valueClassName="metric-negative"
+          />
+          <AppStatCard
+            title="Saldo filtrado"
+            value={formatCurrency(totals.balance, currency)}
+            subtitle="Resultado do período"
+            valueClassName={totals.balance >= 0 ? 'metric-primary' : 'metric-negative'}
+          />
+        </section>
+
+        <section className="premium-panel mb-8 p-6">
+          <div className="mb-5">
+            <h2 className="section-title">Filtros</h2>
+            <p className="section-subtitle">Refine suas transações por categoria, texto e período</p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Categoria</Label>
+              <Label className="text-slate-300">Categoria</Label>
               <Input
-                placeholder="Ex: Barbearia, Loja, Pessoal"
+                placeholder="Ex: alimentação, salário..."
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
               />
             </div>
+
             <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Pesquisar</Label>
-              <Input
-                placeholder="Descrição ou categoria"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
-              />
+              <Label className="text-slate-300">Pesquisar</Label>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <Input
+                  placeholder="Descrição ou categoria"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
             </div>
+
             <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Mês</Label>
+              <Label className="text-slate-300">Mês</Label>
               <Input
                 type="month"
                 value={month}
@@ -413,19 +450,19 @@ function TransactionsContent() {
                     setEndDate('')
                   }
                 }}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
               />
             </div>
+
             <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Tipo</Label>
+              <Label className="text-slate-300">Tipo</Label>
               <Select
                 value={typeFilter}
                 onValueChange={(value: 'all' | 'income' | 'expense') => setTypeFilter(value)}
               >
-                <SelectTrigger className="bg-gray-800 border-gray-700 rounded-xl text-white">
+                <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-gray-800 border-gray-700">
+                <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="income">Receita</SelectItem>
                   <SelectItem value="expense">Despesa</SelectItem>
@@ -433,9 +470,10 @@ function TransactionsContent() {
               </Select>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Data inicial</Label>
+              <Label className="text-slate-300">Data inicial</Label>
               <Input
                 type="date"
                 value={startDate}
@@ -443,11 +481,11 @@ function TransactionsContent() {
                   setStartDate(e.target.value)
                   if (e.target.value) setMonth('')
                 }}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
               />
             </div>
+
             <div className="space-y-2">
-              <Label className="text-gray-300 font-semibold">Data final</Label>
+              <Label className="text-slate-300">Data final</Label>
               <Input
                 type="date"
                 value={endDate}
@@ -455,11 +493,11 @@ function TransactionsContent() {
                   setEndDate(e.target.value)
                   if (e.target.value) setMonth('')
                 }}
-                className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
               />
             </div>
           </div>
-          <div className="flex gap-3 mt-4">
+
+          <div className="mt-5">
             <Button
               type="button"
               variant="outline"
@@ -475,65 +513,66 @@ function TransactionsContent() {
               Limpar filtros
             </Button>
           </div>
-        </div>
+        </section>
 
-        {/* Form */}
-        {showForm && (
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
-            <h2 className="text-2xl font-bold text-white mb-6">
-              {editingId ? 'Editar' : 'Adicionar'} Transação
+        {showForm ? (
+          <section className="premium-panel mb-8 p-6">
+            <h2 className="mb-6 text-2xl font-bold text-white">
+              {editingId ? 'Editar transação' : 'Nova transação'}
             </h2>
+
             <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label className="text-gray-300 font-semibold">Valor</Label>
+                  <Label className="text-slate-300">Valor</Label>
                   <Input
                     type="number"
                     step="0.01"
-                    placeholder="0.00"
+                    placeholder="0,00"
                     value={formData.amount}
                     onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
                   />
                 </div>
+
                 <div className="space-y-2">
-                  <Label className="text-gray-300 font-semibold">Tipo</Label>
+                  <Label className="text-slate-300">Tipo</Label>
                   <Select
                     value={formData.type}
                     onValueChange={(value: 'income' | 'expense') =>
                       setFormData({ ...formData, type: value })
                     }
                   >
-                    <SelectTrigger className="bg-gray-800 border-gray-700 rounded-xl text-white">
+                    <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-gray-800 border-gray-700">
+                    <SelectContent>
                       <SelectItem value="income">Receita</SelectItem>
                       <SelectItem value="expense">Despesa</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="space-y-2">
-                  <Label className="text-gray-300 font-semibold">Categoria</Label>
+                  <Label className="text-slate-300">Categoria</Label>
                   <Input
                     placeholder="Ex: Alimentação, Salário..."
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
                   />
                 </div>
+
                 <div className="space-y-2">
-                  <Label className="text-gray-300 font-semibold">Método de Pagamento</Label>
+                  <Label className="text-slate-300">Método de pagamento</Label>
                   <Select
                     value={formData.payment_method}
                     onValueChange={(value) => setFormData({ ...formData, payment_method: value })}
                   >
-                    <SelectTrigger className="bg-gray-800 border-gray-700 rounded-xl text-white">
+                    <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-gray-800 border-gray-700">
+                    <SelectContent>
                       <SelectItem value="cash">Dinheiro</SelectItem>
                       <SelectItem value="card">Cartão</SelectItem>
                       <SelectItem value="transfer">Transferência</SelectItem>
@@ -541,107 +580,99 @@ function TransactionsContent() {
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="space-y-2">
-                  <Label className="text-gray-300 font-semibold">Data</Label>
+                  <Label className="text-slate-300">Data</Label>
                   <Input
                     type="date"
                     value={formData.date}
                     onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                     required
-                    className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white"
                   />
                 </div>
               </div>
+
               <div className="space-y-2">
-                <Label className="text-gray-300 font-semibold">Descrição</Label>
+                <Label className="text-slate-300">Descrição</Label>
                 <Input
                   placeholder="Descrição da transação"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="bg-gray-800 border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
                 />
               </div>
-              <div className="flex gap-3">
-                <Button
-                  type="submit"
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl transition"
-                >
-                  {editingId ? 'Atualizar' : 'Adicionar'}
+
+              <div className="flex flex-wrap gap-3">
+                <Button type="submit">
+                  {editingId ? 'Atualizar transação' : 'Salvar transação'}
                 </Button>
-                <Button
-                  type="button"
-                  onClick={resetForm}
-                  className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-6 py-3 rounded-xl"
-                >
+                <Button type="button" variant="outline" onClick={resetForm}>
                   Cancelar
                 </Button>
               </div>
             </form>
-          </div>
-        )}
+          </section>
+        ) : null}
 
-        {/* Transactions Table */}
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
-          <div className="overflow-x-auto">
+        <section className="premium-panel overflow-hidden p-0">
+          <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
+            <div>
+              <h2 className="section-title">Lista de transações</h2>
+              <p className="section-subtitle">
+                {visibleTransactions.length} registro(s) encontrado(s)
+              </p>
+            </div>
+
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-slate-950/60">
+              <WalletCards className="h-5 w-5 text-blue-300" />
+            </div>
+          </div>
+
+          <div className="px-2 pb-2 pt-2">
             <Table>
-              <TableHeader className="bg-gray-800/50 border-b border-gray-800">
+              <TableHeader>
                 <TableRow>
-                  <TableHead className="text-gray-300 font-semibold py-4">Data</TableHead>
-                  <TableHead className="text-gray-300 font-semibold">Descrição</TableHead>
-                  <TableHead className="text-gray-300 font-semibold">Categoria</TableHead>
-                  <TableHead className="text-gray-300 font-semibold">Método</TableHead>
-                  <TableHead className="text-gray-300 font-semibold text-right">Valor</TableHead>
-                  <TableHead className="text-gray-300 font-semibold text-right">Ações</TableHead>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Descrição</TableHead>
+                  <TableHead>Categoria</TableHead>
+                  <TableHead>Método</TableHead>
+                  <TableHead className="text-right">Valor</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
+
               <TableBody>
                 {visibleTransactions.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-12">
-                      <p className="text-gray-400">Nenhuma transação registrada</p>
+                    <TableCell colSpan={6} className="py-12 text-center text-slate-400">
+                      Nenhuma transação encontrada
                     </TableCell>
                   </TableRow>
                 ) : (
                   visibleTransactions.map((transaction) => (
-                    <TableRow
-                      key={transaction.id}
-                      className="border-b border-gray-800 hover:bg-gray-800/30 transition"
-                    >
-                      <TableCell className="text-gray-300 py-4">
+                    <TableRow key={transaction.id}>
+                      <TableCell>
                         {new Date(transaction.date).toLocaleDateString('pt-BR')}
                       </TableCell>
-                      <TableCell className="text-gray-300">{transaction.description}</TableCell>
-                      <TableCell className="text-gray-300 capitalize">
-                        {getCategoryName(transaction) || '-'}
+                      <TableCell className="font-medium text-white">
+                        {transaction.description || '-'}
                       </TableCell>
-                      <TableCell className="text-gray-300 capitalize">
-                        {formatPaymentMethod(transaction.payment_method)}
-                      </TableCell>
+                      <TableCell>{getCategoryName(transaction) || '-'}</TableCell>
+                      <TableCell>{formatPaymentMethod(transaction.payment_method)}</TableCell>
                       <TableCell
-                        className={`font-bold text-right ${
-                          transaction.type === 'income' ? 'text-green-500' : 'text-red-500'
+                        className={`text-right font-bold ${
+                          transaction.type === 'income' ? 'metric-positive' : 'metric-negative'
                         }`}
                       >
                         {transaction.type === 'income' ? '+' : '-'}{' '}
                         {formatCurrency(transaction.amount, currency)}
                       </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex gap-2 justify-end">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleEdit(transaction)}
-                            className="border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-amber-600 hover:border-amber-600/30 p-2 h-9 w-9"
-                          >
-                            <Edit className="w-4 h-4" />
+                      <TableCell>
+                        <div className="flex justify-end gap-2">
+                          <Button size="icon" variant="outline" onClick={() => handleEdit(transaction)}>
+                            <Edit className="h-4 w-4" />
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleDelete(transaction.id)}
-                            className="border-gray-700 text-gray-400 hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/30 p-2 h-9 w-9"
-                          >
-                            <Trash2 className="w-4 h-4" />
+                          <Button size="icon" variant="outline" onClick={() => handleDelete(transaction.id)}>
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </TableCell>
@@ -651,7 +682,7 @@ function TransactionsContent() {
               </TableBody>
             </Table>
           </div>
-        </div>
+        </section>
       </main>
     </div>
   )
