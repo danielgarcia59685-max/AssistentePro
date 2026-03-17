@@ -1,4 +1,5 @@
 import { LucideIcon } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 type AppStatCardProps = {
   title: string
@@ -6,6 +7,7 @@ type AppStatCardProps = {
   subtitle?: string
   icon?: LucideIcon
   valueClassName?: string
+  iconClassName?: string
 }
 
 export function AppStatCard({
@@ -14,19 +16,20 @@ export function AppStatCard({
   subtitle,
   icon: Icon,
   valueClassName = 'text-white',
+  iconClassName = 'text-blue-300',
 }: AppStatCardProps) {
   return (
-    <div className="rounded-3xl border border-[#1f2a44] bg-[#08152d] p-6">
+    <div className="premium-panel p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm text-[#94a3b8] mb-2">{title}</p>
-          <h3 className={`text-3xl font-bold ${valueClassName}`}>{value}</h3>
-          {subtitle ? <p className="text-sm text-[#64748b] mt-2">{subtitle}</p> : null}
+          <p className="mb-2 text-sm font-medium text-slate-400">{title}</p>
+          <h3 className={cn('text-3xl font-bold tracking-tight', valueClassName)}>{value}</h3>
+          {subtitle ? <p className="mt-2 text-sm text-slate-500">{subtitle}</p> : null}
         </div>
 
         {Icon ? (
-          <div className="w-12 h-12 rounded-2xl bg-[#030b1d] border border-[#1f2a44] flex items-center justify-center">
-            <Icon className="w-6 h-6 text-[#94a3b8]" />
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-slate-950/60">
+            <Icon className={cn('h-5 w-5', iconClassName)} />
           </div>
         ) : null}
       </div>
