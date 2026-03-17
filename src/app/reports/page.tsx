@@ -95,20 +95,7 @@ function monthKeyFromISO(iso: string) {
 
 function monthLabelPT(yyyyMm: string) {
   const [y, m] = yyyyMm.split('-').map(Number)
-  const months = [
-    'jan',
-    'fev',
-    'mar',
-    'abr',
-    'mai',
-    'jun',
-    'jul',
-    'ago',
-    'set',
-    'out',
-    'nov',
-    'dez',
-  ]
+  const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
   return `${months[(m || 1) - 1]}/${y}`
 }
 
@@ -244,8 +231,7 @@ export default function ReportsPage() {
         })
 
       setMonthlyData(chartData)
-    } catch (e) {
-      console.error('Erro monthly report:', e)
+    } catch {
       setMonthlyData([])
     } finally {
       setIsLoading(false)
@@ -286,8 +272,7 @@ export default function ReportsPage() {
         .sort((a, b) => b.value - a.value)
 
       setCategoryData(chartData)
-    } catch (e) {
-      console.error('Erro category report:', e)
+    } catch {
       setCategoryData([])
     }
   }
@@ -334,8 +319,7 @@ export default function ReportsPage() {
         expensePct: pct(curSum.expense, prevSum.expense),
         balancePct: pct(curSum.balance, prevSum.balance),
       })
-    } catch (e) {
-      console.error('Erro KPIs/YoY:', e)
+    } catch {
       setKpis({ income: 0, expense: 0, balance: 0 })
       setYoy({ incomePct: null, expensePct: null, balancePct: null })
     }
@@ -349,7 +333,7 @@ export default function ReportsPage() {
     return { best: sorted[0], worst: sorted[sorted.length - 1] }
   }, [monthlyData])
 
-  const COLORS = ['#f59e0b', '#22c55e', '#38bdf8', '#a78bfa', '#fb7185', '#f97316', '#34d399', '#fbbf24']
+  const COLORS = ['#3b82f6', '#8b5cf6', '#22c55e', '#f59e0b', '#f43f5e', '#06b6d4', '#a855f7', '#10b981']
 
   const openCategory = async (name: string) => {
     if (!supabase || !userId) return
@@ -379,8 +363,7 @@ export default function ReportsPage() {
           date: normalizeDateOnly(t.date),
         })),
       )
-    } catch (e) {
-      console.error('Erro ao buscar transações da categoria:', e)
+    } catch {
       setCategoryTx([])
     } finally {
       setCategoryTxLoading(false)
@@ -401,11 +384,11 @@ export default function ReportsPage() {
   }, [month, dateRange.start, dateRange.end])
 
   const YoYBadge = ({ value }: { value: number | null }) => {
-    if (value === null) return <span className="text-xs text-gray-500">YoY: —</span>
+    if (value === null) return <span className="text-xs text-slate-500">YoY: —</span>
     const positive = value >= 0
     return (
-      <span className={`text-xs font-medium flex items-center gap-1 ${positive ? 'text-green-400' : 'text-red-400'}`}>
-        {positive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+      <span className={`flex items-center gap-1 text-xs font-medium ${positive ? 'text-emerald-400' : 'text-rose-400'}`}>
+        {positive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
         {positive ? '+' : ''}
         {value}% vs ano anterior
       </span>
@@ -439,7 +422,7 @@ export default function ReportsPage() {
       ])
 
       const canvas = await html2canvas(reportRef.current, {
-        backgroundColor: '#000000',
+        backgroundColor: '#07090d',
         scale: 2,
         useCORS: true,
       })
@@ -471,8 +454,7 @@ export default function ReportsPage() {
 
       const nameSafe = `relatorio-${(month || 'periodo').replace(/[^\w-]/g, '_')}.pdf`
       pdf.save(nameSafe)
-    } catch (e) {
-      console.error('Erro ao exportar PDF:', e)
+    } catch {
       alert('Não foi possível exportar o PDF. Tente novamente.')
     } finally {
       setExportingPdf(false)
@@ -481,255 +463,223 @@ export default function ReportsPage() {
 
   if (!supabase) {
     return (
-      <div className="min-h-screen bg-black p-6">
+      <div className="bg-app min-h-screen">
         <Navigation />
-        <div className="max-w-3xl mx-auto mt-10 text-gray-300">Supabase não configurado.</div>
+        <main className="app-shell">
+          <div className="premium-panel p-8 text-slate-300">Supabase não configurado.</div>
+        </main>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="bg-app min-h-screen">
       <Navigation />
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="app-shell">
         <div ref={reportRef}>
-          <div className="flex flex-col gap-3 mb-8">
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-amber-600/10 rounded-xl flex items-center justify-center">
-                  <BarChart3 className="w-5 h-5 text-amber-600" />
-                </div>
-                <div>
-                  <h1 className="text-3xl font-bold text-white">Relatórios Financeiros</h1>
-                  <p className="text-gray-400">{filterLabel}</p>
-                </div>
+          <section className="page-header">
+            <div>
+              <div className="premium-chip mb-4">Inteligência financeira</div>
+              <h1 className="page-title">Relatórios financeiros</h1>
+              <p className="page-subtitle">{filterLabel}</p>
+            </div>
+
+            <Button type="button" variant="outline" onClick={exportPDF} disabled={exportingPdf}>
+              <Download className="mr-2 h-4 w-4" />
+              {exportingPdf ? 'Gerando PDF...' : 'Exportar PDF'}
+            </Button>
+          </section>
+
+          <section className="premium-panel mb-8 p-6">
+            <div className="mb-5">
+              <h2 className="section-title">Filtros</h2>
+              <p className="section-subtitle">Selecione mês ou intervalo de datas</p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <div className="space-y-2">
+                <Label className="text-slate-300">Mês</Label>
+                <Input
+                  type="month"
+                  value={draftMonth}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setDraftMonth(v)
+                    if (v) {
+                      setDraftStartDate('')
+                      setDraftEndDate('')
+                    }
+                  }}
+                />
               </div>
 
-              <div className="flex items-center gap-3">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={exportPDF}
-                  disabled={exportingPdf}
-                  className="bg-gray-800 text-white hover:bg-gray-700"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  {exportingPdf ? 'Gerando PDF...' : 'Exportar PDF'}
+              <div className="space-y-2">
+                <Label className="text-slate-300">Data inicial</Label>
+                <Input
+                  type="date"
+                  value={draftStartDate}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setDraftStartDate(v)
+                    if (v) setDraftMonth('')
+                  }}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-slate-300">Data final</Label>
+                <Input
+                  type="date"
+                  value={draftEndDate}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setDraftEndDate(v)
+                    if (v) setDraftMonth('')
+                  }}
+                />
+              </div>
+
+              <div className="flex items-end gap-3">
+                <Button type="button" onClick={applyFilters} disabled={Boolean(dateError)}>
+                  <Filter className="mr-2 h-4 w-4" />
+                  Aplicar
+                </Button>
+
+                <Button type="button" variant="outline" onClick={clearFilters}>
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Limpar
                 </Button>
               </div>
             </div>
-          </div>
 
-          <Card className="mb-8 bg-gray-900 border-gray-800">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-white flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-amber-600" />
-                Filtros
-              </CardTitle>
-            </CardHeader>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
+              <div>{dateError ? <div className="text-sm text-rose-400">{dateError}</div> : null}</div>
 
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <div>
-                  <Label className="text-gray-300 text-sm mb-2 block">Mês</Label>
-                  <Input
-                    type="month"
-                    value={draftMonth}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setDraftMonth(v)
-                      if (v) {
-                        setDraftStartDate('')
-                        setDraftEndDate('')
-                      }
-                    }}
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
-                  />
+              {isLoading ? (
+                <div className="flex items-center gap-2 text-blue-300">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+                  <span className="text-sm">Atualizando relatórios...</span>
                 </div>
+              ) : null}
+            </div>
+          </section>
 
-                <div>
-                  <Label className="text-gray-300 text-sm mb-2 block">Data inicial</Label>
-                  <Input
-                    type="date"
-                    value={draftStartDate}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setDraftStartDate(v)
-                      if (v) setDraftMonth('')
-                    }}
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
-                  />
-                </div>
-
-                <div>
-                  <Label className="text-gray-300 text-sm mb-2 block">Data final</Label>
-                  <Input
-                    type="date"
-                    value={draftEndDate}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setDraftEndDate(v)
-                      if (v) setDraftMonth('')
-                    }}
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
-                  />
-                </div>
-
-                <div className="flex items-end gap-3">
-                  <Button
-                    type="button"
-                    onClick={applyFilters}
-                    disabled={Boolean(dateError)}
-                    className="bg-amber-600 hover:bg-amber-700 text-white"
-                  >
-                    <Filter className="w-4 h-4 mr-2" />
-                    Aplicar
-                  </Button>
-
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={clearFilters}
-                    className="border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-amber-600"
-                  >
-                    <RotateCcw className="w-4 h-4 mr-2" />
-                    Limpar
-                  </Button>
-                </div>
-              </div>
-
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  {dateError ? <div className="text-sm text-red-400">{dateError}</div> : null}
-                </div>
-
-                {isLoading && (
-                  <div className="flex items-center gap-2 text-amber-600">
-                    <div className="w-4 h-4 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
-                    <span className="text-sm">Atualizando relatórios...</span>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <section className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <Card className="bg-gradient-to-br from-green-500/10 to-green-600/5 border-green-500/20">
+          <section className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-3">
+            <Card className="border border-emerald-500/15 bg-gradient-to-br from-emerald-500/10 to-transparent">
               <CardHeader className="pb-2">
-                <CardTitle className="text-green-400 text-sm flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4" />
-                  Receitas do Período
+                <CardTitle className="flex items-center gap-2 text-sm text-emerald-400">
+                  <TrendingUp className="h-4 w-4" />
+                  Receitas do período
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-white mb-2">{formatCurrencyBRL(kpis.income)}</div>
+                <div className="mb-2 text-3xl font-bold text-white">{formatCurrencyBRL(kpis.income)}</div>
                 <YoYBadge value={yoy.incomePct} />
               </CardContent>
             </Card>
 
-            <Card className="bg-gradient-to-br from-red-500/10 to-red-600/5 border-red-500/20">
+            <Card className="border border-rose-500/15 bg-gradient-to-br from-rose-500/10 to-transparent">
               <CardHeader className="pb-2">
-                <CardTitle className="text-red-400 text-sm flex items-center gap-2">
-                  <TrendingDown className="w-4 h-4" />
-                  Despesas do Período
+                <CardTitle className="flex items-center gap-2 text-sm text-rose-400">
+                  <TrendingDown className="h-4 w-4" />
+                  Despesas do período
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-white mb-2">{formatCurrencyBRL(kpis.expense)}</div>
+                <div className="mb-2 text-3xl font-bold text-white">{formatCurrencyBRL(kpis.expense)}</div>
                 <YoYBadge value={yoy.expensePct} />
               </CardContent>
             </Card>
 
-            <Card className="bg-gradient-to-br from-amber-500/10 to-amber-600/5 border-amber-500/20">
+            <Card className="border border-blue-500/15 bg-gradient-to-br from-blue-500/10 to-transparent">
               <CardHeader className="pb-2">
-                <CardTitle className="text-amber-400 text-sm flex items-center gap-2">
-                  <DollarSign className="w-4 h-4" />
-                  Saldo Líquido
+                <CardTitle className="flex items-center gap-2 text-sm text-blue-400">
+                  <DollarSign className="h-4 w-4" />
+                  Saldo líquido
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-white mb-2">{formatCurrencyBRL(kpis.balance)}</div>
+                <div className="mb-2 text-3xl font-bold text-white">{formatCurrencyBRL(kpis.balance)}</div>
                 <YoYBadge value={yoy.balancePct} />
               </CardContent>
             </Card>
           </section>
 
-          <section className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-            <Card className="bg-gray-900 border-gray-800">
+          <section className="mb-8 grid grid-cols-1 gap-6 md:grid-cols-2">
+            <Card>
               <CardHeader>
-                <CardTitle className="text-white text-sm">🏆 Melhor Performance</CardTitle>
+                <CardTitle className="text-base">🏆 Melhor performance</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-white">
-                  {bestAndWorst.best ? (
-                    <>
-                      <div className="font-semibold text-gray-300">{bestAndWorst.best.label}</div>
-                      <div className="text-2xl font-bold text-green-400">{formatCurrencyBRL(bestAndWorst.best.balance)}</div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        R: {formatCurrencyBRL(bestAndWorst.best.income)} | D: {formatCurrencyBRL(bestAndWorst.best.expense)}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="text-gray-500">Sem dados no período</div>
-                  )}
-                </div>
+                {bestAndWorst.best ? (
+                  <>
+                    <div className="font-semibold text-slate-300">{bestAndWorst.best.label}</div>
+                    <div className="mt-2 text-3xl font-bold text-emerald-400">
+                      {formatCurrencyBRL(bestAndWorst.best.balance)}
+                    </div>
+                    <div className="mt-2 text-xs text-slate-500">
+                      R: {formatCurrencyBRL(bestAndWorst.best.income)} • D:{' '}
+                      {formatCurrencyBRL(bestAndWorst.best.expense)}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-slate-500">Sem dados no período</div>
+                )}
               </CardContent>
             </Card>
 
-            <Card className="bg-gray-900 border-gray-800">
+            <Card>
               <CardHeader>
-                <CardTitle className="text-white text-sm">📉 Performance mais Baixa</CardTitle>
+                <CardTitle className="text-base">📉 Performance mais baixa</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-white">
-                  {bestAndWorst.worst ? (
-                    <>
-                      <div className="font-semibold text-gray-300">{bestAndWorst.worst.label}</div>
-                      <div className="text-2xl font-bold text-red-400">{formatCurrencyBRL(bestAndWorst.worst.balance)}</div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        R: {formatCurrencyBRL(bestAndWorst.worst.income)} | D: {formatCurrencyBRL(bestAndWorst.worst.expense)}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="text-gray-500">Sem dados no período</div>
-                  )}
-                </div>
+                {bestAndWorst.worst ? (
+                  <>
+                    <div className="font-semibold text-slate-300">{bestAndWorst.worst.label}</div>
+                    <div className="mt-2 text-3xl font-bold text-rose-400">
+                      {formatCurrencyBRL(bestAndWorst.worst.balance)}
+                    </div>
+                    <div className="mt-2 text-xs text-slate-500">
+                      R: {formatCurrencyBRL(bestAndWorst.worst.income)} • D:{' '}
+                      {formatCurrencyBRL(bestAndWorst.worst.expense)}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-slate-500">Sem dados no período</div>
+                )}
               </CardContent>
             </Card>
           </section>
 
           <section className="space-y-8">
-            <Card className="bg-gray-900 border-gray-800">
+            <Card>
               <CardHeader>
-                <CardTitle className="text-white">📈 Evolução do Saldo por Mês</CardTitle>
+                <CardTitle>📈 Evolução do saldo por mês</CardTitle>
               </CardHeader>
               <CardContent>
                 {monthlyData.length === 0 ? (
-                  <div className="text-gray-500 py-10 text-center">Sem dados para exibir neste período.</div>
+                  <div className="py-10 text-center text-slate-500">Sem dados para exibir neste período.</div>
                 ) : (
                   <ResponsiveContainer width="100%" height={320}>
                     <LineChart data={monthlyData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                      <XAxis dataKey="label" tick={{ fill: '#9ca3af', fontSize: 12 }} />
-                      <YAxis
-                        tick={{ fill: '#9ca3af', fontSize: 12 }}
-                        tickFormatter={(v) => formatCompactBRL(Number(v))}
-                      />
-                      <ReferenceLine y={0} stroke="#334155" strokeDasharray="6 6" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" />
+                      <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                      <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} tickFormatter={(v) => formatCompactBRL(Number(v))} />
+                      <ReferenceLine y={0} stroke="rgba(148,163,184,0.22)" strokeDasharray="6 6" />
                       <Tooltip
                         contentStyle={{
-                          background: '#0b1220',
-                          border: '1px solid #243244',
+                          background: '#111827',
+                          border: '1px solid rgba(148,163,184,0.12)',
                           color: '#fff',
-                          borderRadius: '10px',
+                          borderRadius: '16px',
                         }}
                         formatter={(v: unknown) => formatCurrencyBRL(Number(v))}
                       />
                       <Line
                         type="monotone"
                         dataKey="balance"
-                        stroke="#f59e0b"
+                        stroke="#3b82f6"
                         strokeWidth={3}
                         dot={{ r: 3 }}
                         activeDot={{ r: 6 }}
@@ -740,55 +690,53 @@ export default function ReportsPage() {
               </CardContent>
             </Card>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <Card className="bg-gray-900 border-gray-800">
+            <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+              <Card>
                 <CardHeader>
-                  <CardTitle className="text-white">📊 Receitas vs Despesas por Mês</CardTitle>
+                  <CardTitle>📊 Receitas vs despesas por mês</CardTitle>
                 </CardHeader>
                 <CardContent>
                   {monthlyData.length === 0 ? (
-                    <div className="text-gray-500 py-10 text-center">Sem dados para exibir neste período.</div>
+                    <div className="py-10 text-center text-slate-500">Sem dados para exibir neste período.</div>
                   ) : (
                     <ResponsiveContainer width="100%" height={340}>
                       <BarChart data={monthlyData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }} barGap={6}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                        <XAxis dataKey="label" tick={{ fill: '#9ca3af', fontSize: 12 }} />
-                        <YAxis
-                          tick={{ fill: '#9ca3af', fontSize: 12 }}
-                          tickFormatter={(v) => formatCompactBRL(Number(v))}
-                        />
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" />
+                        <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                        <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} tickFormatter={(v) => formatCompactBRL(Number(v))} />
                         <Tooltip
                           contentStyle={{
-                            background: '#0b1220',
-                            border: '1px solid #243244',
+                            background: '#111827',
+                            border: '1px solid rgba(148,163,184,0.12)',
                             color: '#fff',
-                            borderRadius: '10px',
+                            borderRadius: '16px',
                           }}
                           formatter={(v: unknown) => formatCurrencyBRL(Number(v))}
                         />
                         <Legend
                           wrapperStyle={{ color: '#cbd5e1' }}
-                          formatter={(value) => <span className="text-sm text-gray-200">{value}</span>}
+                          formatter={(value) => <span className="text-sm text-slate-200">{value}</span>}
                         />
-                        <Bar dataKey="income" fill="#22c55e" name="Receitas" radius={[6, 6, 0, 0]} />
-                        <Bar dataKey="expense" fill="#fb7185" name="Despesas" radius={[6, 6, 0, 0]} />
+                        <Bar dataKey="income" fill="#22c55e" name="Receitas" radius={[8, 8, 0, 0]} />
+                        <Bar dataKey="expense" fill="#f43f5e" name="Despesas" radius={[8, 8, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   )}
                 </CardContent>
               </Card>
 
-              <Card className="bg-gray-900 border-gray-800">
+              <Card>
                 <CardHeader>
-                  <CardTitle className="text-white flex items-center gap-2">
-                    <PieChartIcon className="w-5 h-5 text-amber-600" />
-                    Gastos por Categoria
+                  <CardTitle className="flex items-center gap-2">
+                    <PieChartIcon className="h-5 w-5 text-violet-400" />
+                    Gastos por categoria
                   </CardTitle>
-                  <p className="text-gray-400 text-sm">Clique em uma categoria para ver as transações</p>
+                  <p className="text-sm text-slate-400">Clique em uma categoria para ver as transações</p>
                 </CardHeader>
+
                 <CardContent>
                   {categoryData.length === 0 ? (
-                    <div className="text-gray-500 py-10 text-center">Sem despesas no período selecionado.</div>
+                    <div className="py-10 text-center text-slate-500">Sem despesas no período selecionado.</div>
                   ) : (
                     <>
                       <ResponsiveContainer width="100%" height={320}>
@@ -797,9 +745,9 @@ export default function ReportsPage() {
                             data={categoryData}
                             cx="50%"
                             cy="50%"
-                            innerRadius={70}
+                            innerRadius={72}
                             outerRadius={110}
-                            paddingAngle={2}
+                            paddingAngle={3}
                             dataKey="value"
                             nameKey="name"
                             onClick={(entry: unknown) => {
@@ -815,10 +763,10 @@ export default function ReportsPage() {
 
                           <Tooltip
                             contentStyle={{
-                              background: '#0b1220',
-                              border: '1px solid #243244',
+                              background: '#111827',
+                              border: '1px solid rgba(148,163,184,0.12)',
                               color: '#fff',
-                              borderRadius: '10px',
+                              borderRadius: '16px',
                             }}
                             formatter={(v: unknown, _n: unknown, p: unknown) => {
                               const payload = (p as { payload?: { name?: string; percent?: number } })?.payload
@@ -836,12 +784,12 @@ export default function ReportsPage() {
                           <button
                             key={c.name}
                             onClick={() => void openCategory(c.name)}
-                            className="w-full flex items-center justify-between gap-3 bg-gray-800/30 hover:bg-gray-800 border border-gray-700 rounded-lg px-4 py-3"
+                            className="premium-panel-soft flex w-full items-center justify-between gap-3 p-4 text-left"
                           >
-                            <span className="text-sm text-gray-200 truncate font-medium">{c.name}</span>
+                            <span className="truncate text-sm font-medium text-slate-200">{c.name}</span>
                             <div className="flex items-center gap-2 text-right">
-                              <span className="text-xs text-gray-400">{(c.percent ?? 0).toFixed(1)}%</span>
-                              <span className="text-sm text-white font-bold">{formatCurrencyBRL(c.value)}</span>
+                              <span className="text-xs text-slate-400">{(c.percent ?? 0).toFixed(1)}%</span>
+                              <span className="text-sm font-bold text-white">{formatCurrencyBRL(c.value)}</span>
                             </div>
                           </button>
                         ))}
@@ -854,38 +802,34 @@ export default function ReportsPage() {
           </section>
         </div>
 
-        {selectedCategory && (
+        {selectedCategory ? (
           <div className="fixed inset-0 z-[999] flex items-center justify-center">
             <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={closeCategory} />
-            <div className="relative w-[95vw] max-w-4xl max-h-[85vh] rounded-2xl border border-gray-800 bg-gray-900 shadow-2xl">
-              <div className="flex items-center justify-between p-6 border-b border-gray-800">
+            <div className="relative max-h-[85vh] w-[95vw] max-w-4xl rounded-[28px] border border-white/10 bg-[#101722] shadow-2xl">
+              <div className="flex items-center justify-between border-b border-white/10 p-6">
                 <div className="text-xl font-bold text-white">Transações: {selectedCategory}</div>
-                <Button
-                  variant="outline"
-                  onClick={closeCategory}
-                  className="border-gray-700 text-gray-300 hover:bg-gray-800"
-                >
+                <Button variant="outline" onClick={closeCategory}>
                   Fechar
                 </Button>
               </div>
 
               <div className="p-6">
                 {categoryTxLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <div className="flex items-center gap-3 text-amber-600">
-                      <div className="w-6 h-6 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+                  <div className="flex justify-center py-12">
+                    <div className="flex items-center gap-3 text-blue-300">
+                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
                       <span>Carregando transações...</span>
                     </div>
                   </div>
                 ) : categoryTx.length === 0 ? (
-                  <div className="text-center py-12 text-gray-500">
+                  <div className="py-12 text-center text-slate-500">
                     <p className="text-lg">Nenhuma transação encontrada</p>
                   </div>
                 ) : (
-                  <div className="space-y-3 max-h-[50vh] overflow-auto pr-2">
-                    <div className="text-sm text-gray-400 mb-4">
+                  <div className="scrollbar-thin-dark max-h-[50vh] space-y-3 overflow-auto pr-2">
+                    <div className="mb-4 text-sm text-slate-400">
                       <strong>{categoryTx.length}</strong> transação(ões) • Total:{' '}
-                      <strong className="text-red-400">
+                      <strong className="text-rose-400">
                         {formatCurrencyBRL(categoryTx.reduce((sum, t) => sum + Number(t.amount || 0), 0))}
                       </strong>
                     </div>
@@ -893,19 +837,19 @@ export default function ReportsPage() {
                     {categoryTx.map((t) => (
                       <div
                         key={t.id}
-                        className="flex items-start justify-between gap-4 rounded-xl border border-gray-800 bg-gray-950/30 px-4 py-4"
+                        className="premium-panel-soft flex items-start justify-between gap-4 p-4"
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="text-white font-medium mb-1 truncate">
+                          <div className="mb-1 truncate font-medium text-white">
                             {t.description || 'Sem descrição'}
                           </div>
-                          <div className="text-xs text-gray-500 space-y-1">
+                          <div className="space-y-1 text-xs text-slate-500">
                             <div>📅 {formatDateBR(t.date)}</div>
                             <div>🏷️ {t.category || 'Outros'}</div>
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="text-lg font-bold text-red-400">
+                          <div className="text-lg font-bold text-rose-400">
                             - {formatCurrencyBRL(Number(t.amount || 0))}
                           </div>
                         </div>
@@ -916,7 +860,7 @@ export default function ReportsPage() {
               </div>
             </div>
           </div>
-        )}
+        ) : null}
       </main>
     </div>
   )
