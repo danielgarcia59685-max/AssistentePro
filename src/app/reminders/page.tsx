@@ -126,9 +126,7 @@ export default function RemindersPage() {
       if (!error && data) {
         setReminders(data as Reminder[])
       }
-    } catch (error) {
-      console.error('Erro ao buscar lembretes:', error)
-    }
+    } catch {}
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -286,23 +284,22 @@ export default function RemindersPage() {
   const upcomingCount = pendingReminders.filter((r) => r.due_date.split('T')[0] >= today).length
 
   return (
-    <div className="min-h-screen bg-app">
+    <div className="bg-app min-h-screen">
       <Navigation />
 
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-        <section className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <main className="app-shell">
+        <section className="page-header">
           <div>
             <div className="premium-chip mb-4">Agenda inteligente</div>
-            <h1 className="text-3xl font-bold text-white sm:text-4xl">Compromissos</h1>
-            <p className="mt-2 text-slate-400">Organize lembretes, tarefas e datas importantes</p>
+            <h1 className="page-title">Compromissos</h1>
+            <p className="page-subtitle">
+              Organize tarefas, pagamentos e lembretes importantes em uma visão clara.
+            </p>
           </div>
 
-          <Button
-            onClick={() => setShowForm(!showForm)}
-            className="rounded-2xl border-0 bg-gradient-to-r from-blue-600 via-violet-600 to-purple-600 px-6 py-3 text-white hover:opacity-95"
-          >
-            <Plus className="mr-2 h-5 w-5" />
-            Novo Compromisso
+          <Button onClick={() => setShowForm(!showForm)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Novo compromisso
           </Button>
         </section>
 
@@ -318,28 +315,31 @@ export default function RemindersPage() {
             value={pendingReminders.length}
             subtitle="Aguardando conclusão"
             icon={Clock}
-            valueClassName="text-amber-400"
+            valueClassName="metric-warning"
+            iconClassName="text-amber-300"
           />
           <AppStatCard
             title="Concluídos"
             value={completedReminders.length}
             subtitle="Itens finalizados"
             icon={CheckCircle2}
-            valueClassName="text-emerald-400"
+            valueClassName="metric-positive"
+            iconClassName="text-emerald-300"
           />
           <AppStatCard
             title="Próximos"
             value={upcomingCount}
             subtitle="Ainda por acontecer"
             icon={CalendarClock}
-            valueClassName="text-blue-400"
+            valueClassName="metric-primary"
+            iconClassName="text-blue-300"
           />
         </section>
 
         <section className="premium-panel mb-8 p-6">
           <div className="mb-5">
-            <h2 className="text-xl font-semibold text-white">Filtros</h2>
-            <p className="mt-1 text-sm text-slate-400">Filtre seus compromissos por data e status</p>
+            <h2 className="section-title">Filtros</h2>
+            <p className="section-subtitle">Filtre compromissos por data e status</p>
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -355,7 +355,6 @@ export default function RemindersPage() {
                     setEndDate('')
                   }
                 }}
-                className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
               />
             </div>
 
@@ -368,7 +367,6 @@ export default function RemindersPage() {
                   setStartDate(e.target.value)
                   if (e.target.value) setMonth('')
                 }}
-                className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
               />
             </div>
 
@@ -381,7 +379,6 @@ export default function RemindersPage() {
                   setEndDate(e.target.value)
                   if (e.target.value) setMonth('')
                 }}
-                className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
               />
             </div>
 
@@ -391,10 +388,10 @@ export default function RemindersPage() {
                 value={statusFilter}
                 onValueChange={(value: 'all' | 'pending' | 'completed') => setStatusFilter(value)}
               >
-                <SelectTrigger className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white">
+                <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="border-white/10 bg-slate-900 text-white">
+                <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="pending">Pendente</SelectItem>
                   <SelectItem value="completed">Concluído</SelectItem>
@@ -413,7 +410,6 @@ export default function RemindersPage() {
                 setEndDate('')
                 setStatusFilter('all')
               }}
-              className="rounded-2xl border-white/10 bg-slate-900/60 text-slate-200 hover:bg-slate-800"
             >
               Limpar filtros
             </Button>
@@ -435,7 +431,6 @@ export default function RemindersPage() {
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                     required
-                    className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
                   />
                 </div>
 
@@ -446,7 +441,6 @@ export default function RemindersPage() {
                     value={formData.due_date}
                     onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
                     required
-                    className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
                   />
                 </div>
 
@@ -456,7 +450,6 @@ export default function RemindersPage() {
                     type="time"
                     value={formData.due_time}
                     onChange={(e) => setFormData({ ...formData, due_time: e.target.value })}
-                    className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
                   />
                 </div>
 
@@ -466,10 +459,10 @@ export default function RemindersPage() {
                     value={formData.reminder_type}
                     onValueChange={(value) => setFormData({ ...formData, reminder_type: value })}
                   >
-                    <SelectTrigger className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white">
+                    <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="border-white/10 bg-slate-900 text-white">
+                    <SelectContent>
                       <SelectItem value="task">Tarefa</SelectItem>
                       <SelectItem value="meeting">Reunião</SelectItem>
                       <SelectItem value="payment">Pagamento</SelectItem>
@@ -485,30 +478,21 @@ export default function RemindersPage() {
                   placeholder="Descrição do compromisso"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="h-11 rounded-2xl border-white/10 bg-slate-950/50 text-white"
                 />
               </div>
 
               <div className="flex flex-wrap gap-3">
-                <Button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="rounded-2xl border-0 bg-gradient-to-r from-blue-600 via-violet-600 to-purple-600 px-6 py-3 text-white hover:opacity-95"
-                >
+                <Button type="submit" disabled={isSubmitting}>
                   {isSubmitting
                     ? editingId
                       ? 'Atualizando...'
-                      : 'Adicionando...'
+                      : 'Salvando...'
                     : editingId
-                      ? 'Atualizar'
-                      : 'Adicionar'}
+                      ? 'Atualizar compromisso'
+                      : 'Salvar compromisso'}
                 </Button>
 
-                <Button
-                  type="button"
-                  onClick={resetForm}
-                  className="rounded-2xl border border-white/10 bg-slate-900/70 px-6 py-3 text-slate-200 hover:bg-slate-800"
-                >
+                <Button type="button" variant="outline" onClick={resetForm}>
                   Cancelar
                 </Button>
               </div>
@@ -540,25 +524,13 @@ export default function RemindersPage() {
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => handleEdit(reminder)}
-                        className="h-10 rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 text-blue-300 hover:bg-blue-500/15"
-                      >
+                      <Button size="icon" variant="outline" onClick={() => handleEdit(reminder)}>
                         <Edit className="h-4 w-4" />
                       </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => handleMarkAsCompleted(reminder.id)}
-                        className="h-10 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 text-emerald-300 hover:bg-emerald-500/15"
-                      >
+                      <Button size="icon" variant="outline" onClick={() => handleMarkAsCompleted(reminder.id)}>
                         <CheckCircle2 className="h-4 w-4" />
                       </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => handleDelete(reminder.id)}
-                        className="h-10 rounded-xl border border-red-500/20 bg-red-500/10 px-3 text-red-300 hover:bg-red-500/15"
-                      >
+                      <Button size="icon" variant="outline" onClick={() => handleDelete(reminder.id)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -570,7 +542,7 @@ export default function RemindersPage() {
 
           {completedReminders.length > 0 ? (
             <div>
-              <h2 className="mb-4 flex items-center gap-2 text-2xl font-bold text-slate-400">
+              <h2 className="mb-4 flex items-center gap-2 text-2xl font-bold text-slate-300">
                 <CheckCircle2 className="h-6 w-6 text-emerald-400" />
                 Concluídos
               </h2>
@@ -579,7 +551,7 @@ export default function RemindersPage() {
                 {completedReminders.map((reminder) => (
                   <div
                     key={reminder.id}
-                    className="premium-panel-soft flex flex-col gap-4 p-6 opacity-75 lg:flex-row lg:items-center lg:justify-between"
+                    className="premium-panel-soft flex flex-col gap-4 p-6 opacity-80 lg:flex-row lg:items-center lg:justify-between"
                   >
                     <div className="flex-1">
                       <h3 className="text-lg font-semibold text-slate-400 line-through">
@@ -590,11 +562,7 @@ export default function RemindersPage() {
                       </p>
                     </div>
 
-                    <Button
-                      size="sm"
-                      onClick={() => handleDelete(reminder.id)}
-                      className="h-10 rounded-xl border border-red-500/20 bg-red-500/10 px-3 text-red-300 hover:bg-red-500/15"
-                    >
+                    <Button size="icon" variant="outline" onClick={() => handleDelete(reminder.id)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
