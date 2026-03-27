@@ -1,16 +1,26 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { useAuth } from '@/hooks/useAuth'
+import { useEffect, useMemo, useState } from 'react'
 import { Navigation } from '@/components/Navigation'
+import { useAuth } from '@/hooks/useAuth'
+import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { supabase } from '@/lib/supabase'
-import { Target, Plus, Trash2, TrendingUp, Edit } from 'lucide-react'
+import { Plus, Trash2, Target, Trophy, Wallet } from 'lucide-react'
 import { toast } from '@/hooks/useToast'
+import { CompactFilterBar } from '@/components/CompactFilterBar'
+import { AppStatCard } from '@/components/AppStatCard'
+
+interface Goal {
+  id: string
+  title: string
+  target_amount: number
+  current_amount: number
+  deadline: string
+  category: string
+  status: 'active' | 'completed' | 'cancelled'
+}
 
 function formatCurrency(value: number, currency: string) {
   return new Intl.NumberFormat('pt-BR', {
@@ -19,210 +29,245 @@ function formatCurrency(value: number, currency: string) {
   }).format(Number(value) || 0)
 }
 
-interface Goal {
-  id: string
-  name: string
-  target_amount: number
-  current_amount: number
-  category: string
-  deadline: string
+function normalizeDate(value?: string | null) {
+  if (!value) return ''
+  return String(value).split('T')[0]
+}
+
+function getGoalProgress(goal: Goal) {
+  const current = Number(goal.current_amount) || 0
+  const target = Number(goal.target_amount) || 0
+  if (target <= 0) return 0
+  return Math.min((current / target) * 100, 100)
 }
 
 export default function GoalsPage() {
-  const router = useRouter()
   const { userId, loading: authLoading } = useAuth()
+
   const [goals, setGoals] = useState<Goal[]>([])
-  const [showForm, setShowForm] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
   const [currency, setCurrency] = useState('BRL')
+  const [loading, setLoading] = useState(true)
+
+  const [showForm, setShowForm] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
+
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | Goal['status']>('all')
+  const [month, setMonth] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+
   const [formData, setFormData] = useState({
-    name: '',
+    title: '',
     target_amount: '',
     current_amount: '',
-    category: 'savings',
-    deadline: new Date(new Date().getFullYear() + 1, 0, 1).toISOString().split('T')[0],
+    deadline: new Date().toISOString().split('T')[0],
+    category: '',
   })
-  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
-    if (!authLoading && !userId) {
-      router.push('/login')
+    if (authLoading) return
+    if (!userId || !supabase) {
+      setLoading(false)
       return
     }
-    if (userId) {
-      fetchProfileCurrency()
-      fetchGoals()
-    }
-  }, [userId, authLoading, router])
 
-  const fetchProfileCurrency = async () => {
-    if (!supabase || !userId) return
+    fetchCurrency()
+    fetchGoals()
+  }, [authLoading, userId])
+
+  const fetchCurrency = async () => {
     const { data } = await supabase.from('users').select('currency').eq('id', userId).single()
-    if (data?.currency) setCurrency(data.currency)
+
+    if (data?.currency) {
+      setCurrency(data.currency)
+    }
   }
 
   const fetchGoals = async () => {
-    if (!supabase || !userId) return
+    setLoading(true)
 
     try {
       const { data, error } = await supabase
-        .from('financial_goals')
+        .from('goals')
         .select('*')
         .eq('user_id', userId)
         .order('deadline', { ascending: true })
 
-      if (!error && data) {
-        setGoals(data)
+      if (error) {
+        throw error
       }
-    } catch (error) {
+
+      setGoals((data || []) as Goal[])
+    } catch (error: any) {
       console.error('Erro ao buscar metas:', error)
+      toast({
+        title: 'Erro',
+        description: error?.message || 'Não foi possível carregar as metas',
+        variant: 'destructive',
+      })
+    } finally {
+      setLoading(false)
     }
+  }
+
+  const visibleGoals = useMemo(() => {
+    let rows = [...goals]
+
+    if (search.trim()) {
+      const term = search.trim().toLowerCase()
+      rows = rows.filter((goal) => {
+        return (
+          (goal.title || '').toLowerCase().includes(term) ||
+          (goal.category || '').toLowerCase().includes(term)
+        )
+      })
+    }
+
+    if (statusFilter !== 'all') {
+      rows = rows.filter((goal) => goal.status === statusFilter)
+    }
+
+    if (month) {
+      rows = rows.filter((goal) => normalizeDate(goal.deadline).startsWith(month))
+    } else {
+      if (startDate) {
+        rows = rows.filter((goal) => normalizeDate(goal.deadline) >= startDate)
+      }
+      if (endDate) {
+        rows = rows.filter((goal) => normalizeDate(goal.deadline) <= endDate)
+      }
+    }
+
+    return rows
+  }, [goals, search, statusFilter, month, startDate, endDate])
+
+  const stats = useMemo(() => {
+    const active = goals.filter((goal) => goal.status === 'active')
+    const completed = goals.filter((goal) => goal.status === 'completed')
+    const totalTarget = active.reduce((sum, goal) => sum + (Number(goal.target_amount) || 0), 0)
+    const totalSaved = active.reduce((sum, goal) => sum + (Number(goal.current_amount) || 0), 0)
+
+    return {
+      total: goals.length,
+      active: active.length,
+      completed: completed.length,
+      progress: totalTarget > 0 ? (totalSaved / totalTarget) * 100 : 0,
+    }
+  }, [goals])
+
+  const resetForm = () => {
+    setFormData({
+      title: '',
+      target_amount: '',
+      current_amount: '',
+      deadline: new Date().toISOString().split('T')[0],
+      category: '',
+    })
+    setShowForm(false)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!supabase) return
-    const { data: sessionData } = await supabase.auth.getSession()
-    const sessionUserId = sessionData.session?.user?.id || null
-    if (!sessionUserId) {
+
+    if (!supabase || !userId) return
+
+    const targetAmount = Number(formData.target_amount)
+    const currentAmount = Number(formData.current_amount || 0)
+
+    if (!formData.title.trim()) {
       toast({
-        title: 'Sessão expirada',
-        description: 'Faça login novamente para salvar a meta',
+        title: 'Campo obrigatório',
+        description: 'Informe o título da meta',
         variant: 'destructive',
       })
       return
     }
 
-    if (!formData.name || formData.name.trim().length === 0) {
+    if (!targetAmount || targetAmount <= 0) {
       toast({
-        title: 'Nome inválido',
-        description: 'Informe um nome para a meta',
-        variant: 'destructive',
-      })
-      return
-    }
-    if (
-      !formData.target_amount ||
-      isNaN(Number(formData.target_amount)) ||
-      Number(formData.target_amount) <= 0
-    ) {
-      toast({
-        title: 'Valor alvo inválido',
-        description: 'Informe um valor alvo maior que 0',
+        title: 'Valor inválido',
+        description: 'Informe um valor alvo maior que zero',
         variant: 'destructive',
       })
       return
     }
 
-    setIsSubmitting(true)
     try {
-      if (editingId) {
-        await supabase
-          .from('financial_goals')
-          .update({
-            name: formData.name,
-            target_amount: parseFloat(formData.target_amount),
-            current_amount: parseFloat(formData.current_amount) || 0,
-            category: formData.category,
-            deadline: formData.deadline,
-          })
-          .eq('id', editingId)
-          .throwOnError()
-      } else {
-        await supabase
-          .from('financial_goals')
-          .insert([
-            {
-              user_id: sessionUserId,
-              name: formData.name,
-              target_amount: parseFloat(formData.target_amount),
-              current_amount: parseFloat(formData.current_amount) || 0,
-              category: formData.category,
-              deadline: formData.deadline,
-            },
-          ])
-          .throwOnError()
-      }
+      await supabase.from('goals').insert([
+        {
+          user_id: userId,
+          title: formData.title.trim(),
+          target_amount: targetAmount,
+          current_amount: currentAmount,
+          deadline: formData.deadline,
+          category: formData.category.trim(),
+          status: currentAmount >= targetAmount ? 'completed' : 'active',
+        },
+      ])
+
+      toast({
+        title: 'Sucesso',
+        description: 'Meta criada com sucesso',
+      })
 
       resetForm()
       fetchGoals()
-      toast({ title: 'Sucesso', description: 'Meta salva com sucesso' })
     } catch (error: any) {
       console.error('Erro ao salvar meta:', error)
-      const message = error?.message || 'Não foi possível salvar a meta'
-      toast({ title: 'Erro', description: message, variant: 'destructive' })
-    } finally {
-      setIsSubmitting(false)
+      toast({
+        title: 'Erro',
+        description: error?.message || 'Não foi possível salvar a meta',
+        variant: 'destructive',
+      })
     }
-  }
-
-  const resetForm = () => {
-    setFormData({
-      name: '',
-      target_amount: '',
-      current_amount: '',
-      category: 'savings',
-      deadline: new Date(new Date().getFullYear() + 1, 0, 1).toISOString().split('T')[0],
-    })
-    setEditingId(null)
-    setShowForm(false)
-  }
-
-  const handleEdit = (goal: Goal) => {
-    setFormData({
-      name: goal.name,
-      target_amount: goal.target_amount.toString(),
-      current_amount: goal.current_amount.toString(),
-      category: goal.category,
-      deadline: goal.deadline.split('T')[0],
-    })
-    setEditingId(goal.id)
-    setShowForm(true)
   }
 
   const handleDelete = async (id: string) => {
-    if (!supabase || !confirm('Tem certeza?')) return
+    if (!supabase) return
+    if (!confirm('Tem certeza que deseja excluir esta meta?')) return
 
     try {
-      await supabase.from('financial_goals').delete().eq('id', id)
+      await supabase.from('goals').delete().eq('id', id)
+      toast({
+        title: 'Sucesso',
+        description: 'Meta removida com sucesso',
+      })
       fetchGoals()
-    } catch (error) {
-      console.error('Erro ao deletar:', error)
+    } catch (error: any) {
+      console.error('Erro ao excluir meta:', error)
+      toast({
+        title: 'Erro',
+        description: error?.message || 'Não foi possível excluir a meta',
+        variant: 'destructive',
+      })
     }
   }
 
-  const totalGoals = goals.length
-  const completedGoals = goals.filter((g) => g.current_amount >= g.target_amount).length
-  const inProgressGoals = goals.filter(
-    (g) => g.current_amount > 0 && g.current_amount < g.target_amount,
-  ).length
-  const totalTargetAmount = goals.reduce((sum, g) => sum + g.target_amount, 0)
-  const totalCurrentAmount = goals.reduce((sum, g) => sum + g.current_amount, 0)
-
-  const getProgressPercentage = (goal: Goal) =>
-    goal.target_amount > 0 ? (goal.current_amount / goal.target_amount) * 100 : 0
-
-  const getStatusColor = (goal: Goal) => {
-    if (goal.current_amount >= goal.target_amount) {
-      return 'bg-green-500/10 border-green-500/20 text-green-400'
-    }
-    if (goal.current_amount > 0) {
-      return 'bg-amber-600/10 border-amber-600/20 text-amber-400'
-    }
-    return 'bg-gray-800/50 border-gray-700 text-gray-400'
+  if (authLoading || loading) {
+    return (
+      <div className="min-h-screen bg-black">
+        <Navigation />
+        <div className="flex items-center justify-center h-96">
+          <p className="text-white">Carregando metas...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="min-h-screen bg-black">
       <Navigation />
+
       <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-8 gap-4 flex-wrap">
           <div>
-            <h1 className="text-4xl font-bold text-white mb-2">Metas Financeiras</h1>
-            <p className="text-gray-400">Acompanhe suas metas e objetivos</p>
+            <h1 className="text-4xl font-bold text-white mb-2">Metas</h1>
+            <p className="text-[#94a3b8]">Acompanhe seus objetivos financeiros</p>
           </div>
+
           <Button
-            onClick={() => setShowForm(!showForm)}
+            onClick={() => setShowForm((prev) => !prev)}
             className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl flex items-center gap-2"
           >
             <Plus className="w-5 h-5" />
@@ -231,105 +276,158 @@ export default function GoalsPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <p className="text-gray-400 text-sm mb-2">Total de Metas</p>
-            <p className="text-3xl font-bold text-white">{totalGoals}</p>
-          </div>
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <p className="text-gray-400 text-sm mb-2">Valor Total</p>
-            <p className="text-3xl font-bold text-amber-600">
-              {formatCurrency(totalTargetAmount, currency)}
-            </p>
-          </div>
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <p className="text-gray-400 text-sm mb-2">Acumulado</p>
-            <p className="text-3xl font-bold text-green-500">
-              {formatCurrency(totalCurrentAmount, currency)}
-            </p>
-          </div>
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-            <p className="text-gray-400 text-sm mb-2">Concluídas</p>
-            <p className="text-3xl font-bold text-blue-500">{completedGoals}</p>
-          </div>
+          <AppStatCard title="Total de Metas" value={stats.total} icon={Target} />
+          <AppStatCard title="Ativas" value={stats.active} valueClassName="text-amber-500" icon={Wallet} />
+          <AppStatCard title="Concluídas" value={stats.completed} valueClassName="text-green-500" icon={Trophy} />
+          <AppStatCard
+            title="Progresso Geral"
+            value={`${stats.progress.toFixed(1)}%`}
+            subtitle="Soma do valor atual / soma do valor alvo"
+          />
         </div>
 
+        <CompactFilterBar
+          search={search}
+          onSearchChange={setSearch}
+          onToggleFilters={() => setShowFilters((prev) => !prev)}
+          onClear={() => {
+            setSearch('')
+            setStatusFilter('all')
+            setMonth('')
+            setStartDate('')
+            setEndDate('')
+          }}
+          showFilters={showFilters}
+          placeholder="Buscar por título ou categoria"
+          searchClassName="lg:max-w-sm"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div>
+              <Label className="text-gray-300 text-sm mb-2 block">Status</Label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as 'all' | Goal['status'])}
+                className="w-full h-10 bg-[#1a263d] border border-[#2a3650] text-white rounded-xl px-3"
+              >
+                <option value="all">Todos</option>
+                <option value="active">Ativa</option>
+                <option value="completed">Concluída</option>
+                <option value="cancelled">Cancelada</option>
+              </select>
+            </div>
+
+            <div>
+              <Label className="text-gray-300 text-sm mb-2 block">Mês limite</Label>
+              <Input
+                type="month"
+                value={month}
+                onChange={(e) => {
+                  setMonth(e.target.value)
+                  if (e.target.value) {
+                    setStartDate('')
+                    setEndDate('')
+                  }
+                }}
+                className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
+              />
+            </div>
+
+            <div>
+              <Label className="text-gray-300 text-sm mb-2 block">Data inicial</Label>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value)
+                  if (e.target.value) setMonth('')
+                }}
+                className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
+              />
+            </div>
+
+            <div>
+              <Label className="text-gray-300 text-sm mb-2 block">Data final</Label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => {
+                  setEndDate(e.target.value)
+                  if (e.target.value) setMonth('')
+                }}
+                className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
+              />
+            </div>
+          </div>
+        </CompactFilterBar>
+
         {showForm && (
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label className="text-gray-300">Nome da Meta</Label>
-                  <Input
-                    placeholder="Ex: Comprar carro"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    required
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-gray-300">Categoria</Label>
-                  <Select
-                    value={formData.category}
-                    onValueChange={(value) => setFormData({ ...formData, category: value })}
-                  >
-                    <SelectTrigger className="bg-gray-800 border-gray-700 text-white rounded-xl">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-gray-800 border-gray-700">
-                      <SelectItem value="savings">Poupança</SelectItem>
-                      <SelectItem value="investment">Investimento</SelectItem>
-                      <SelectItem value="vacation">Férias</SelectItem>
-                      <SelectItem value="home">Casa</SelectItem>
-                      <SelectItem value="car">Carro</SelectItem>
-                      <SelectItem value="education">Educação</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-gray-300">Valor Alvo</Label>
-                  <Input
-                    type="number"
-                    placeholder="0.00"
-                    value={formData.target_amount}
-                    onChange={(e) => setFormData({ ...formData, target_amount: e.target.value })}
-                    required
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-gray-300">Valor Atual</Label>
-                  <Input
-                    type="number"
-                    placeholder="0.00"
-                    value={formData.current_amount}
-                    onChange={(e) => setFormData({ ...formData, current_amount: e.target.value })}
-                    className="bg-gray-800 border-gray-700 text-white rounded-xl"
-                  />
-                </div>
+          <div className="bg-[#08152d] rounded-2xl border border-[#1f2a44] p-6 mb-8">
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+              <div className="xl:col-span-2">
+                <Label className="text-gray-300 text-sm mb-2 block">Título</Label>
+                <Input
+                  placeholder="Ex: Reserva de emergência"
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
+                  required
+                />
               </div>
-              <div className="space-y-2">
-                <Label className="text-gray-300">Data Alvo</Label>
+
+              <div>
+                <Label className="text-gray-300 text-sm mb-2 block">Valor alvo</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={formData.target_amount}
+                  onChange={(e) => setFormData({ ...formData, target_amount: e.target.value })}
+                  className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
+                  required
+                />
+              </div>
+
+              <div>
+                <Label className="text-gray-300 text-sm mb-2 block">Valor atual</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={formData.current_amount}
+                  onChange={(e) => setFormData({ ...formData, current_amount: e.target.value })}
+                  className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
+                />
+              </div>
+
+              <div>
+                <Label className="text-gray-300 text-sm mb-2 block">Categoria</Label>
+                <Input
+                  placeholder="Ex: Viagem"
+                  value={formData.category}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
+                />
+              </div>
+
+              <div>
+                <Label className="text-gray-300 text-sm mb-2 block">Prazo</Label>
                 <Input
                   type="date"
                   value={formData.deadline}
                   onChange={(e) => setFormData({ ...formData, deadline: e.target.value })}
+                  className="bg-[#1a263d] border-[#2a3650] text-white rounded-xl"
                   required
-                  className="bg-gray-800 border-gray-700 text-white rounded-xl"
                 />
               </div>
-              <div className="flex gap-3">
-                <Button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl"
-                >
-                  {isSubmitting ? (editingId ? 'Atualizando...' : 'Adicionando...') : editingId ? 'Atualizar' : 'Adicionar'}
+
+              <div className="md:col-span-2 xl:col-span-5 flex gap-3 flex-wrap pt-2">
+                <Button type="submit" className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl">
+                  Salvar Meta
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => resetForm()}
-                  className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-6 py-3 rounded-xl"
+                  onClick={resetForm}
+                  className="border border-[#2a3650] bg-black text-white hover:bg-[#111827] rounded-xl"
                 >
                   Cancelar
                 </Button>
@@ -338,56 +436,95 @@ export default function GoalsPage() {
           </div>
         )}
 
-        <div className="space-y-4">
-          {goals.length === 0 ? (
-            <div className="bg-gray-900 rounded-2xl border border-gray-800 p-12 text-center">
-              <Target className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-              <p className="text-gray-400">Nenhuma meta registrada</p>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {visibleGoals.length === 0 ? (
+            <div className="lg:col-span-2 bg-[#08152d] rounded-2xl border border-[#1f2a44] p-12 text-center">
+              <Target className="w-12 h-12 text-[#64748b] mx-auto mb-4" />
+              <p className="text-[#94a3b8]">Nenhuma meta encontrada</p>
             </div>
           ) : (
-            goals.map((goal) => {
-              const percentage = getProgressPercentage(goal)
+            visibleGoals.map((goal) => {
+              const progress = getGoalProgress(goal)
+              const remaining =
+                Math.max((Number(goal.target_amount) || 0) - (Number(goal.current_amount) || 0), 0)
+
               return (
                 <div
                   key={goal.id}
-                  className={`rounded-2xl border p-6 flex items-center justify-between hover:border-amber-600/30 transition ${getStatusColor(goal)}`}
+                  className="bg-[#08152d] rounded-2xl border border-[#1f2a44] p-6 hover:border-[#2a3650] transition"
                 >
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-white">{goal.name}</h3>
-                    <p className="text-gray-400 text-sm mt-1">Categoria: {goal.category}</p>
-                    <div className="mt-4">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm text-gray-300">Progresso</span>
-                        <span className="text-sm font-semibold text-amber-600">
-                          {percentage.toFixed(0)}%
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-800 rounded-full h-2">
-                        <div
-                          className="bg-gradient-to-r from-amber-600 to-amber-500 h-2 rounded-full"
-                          style={{ width: `${Math.min(percentage, 100)}%` }}
-                        ></div>
-                      </div>
+                  <div className="flex items-start justify-between gap-4 mb-4">
+                    <div>
+                      <h3 className="text-xl font-semibold text-white">{goal.title}</h3>
+                      <p className="text-sm text-[#94a3b8] mt-1">
+                        {goal.category || 'Sem categoria'} • Prazo: {new Date(goal.deadline).toLocaleDateString('pt-BR')}
+                      </p>
                     </div>
-                    <p className="text-gray-400 text-sm mt-3">
-                      {formatCurrency(goal.current_amount, currency)} / {formatCurrency(goal.target_amount, currency)}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => handleEdit(goal)}
-                      className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/30 rounded-lg"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      size="sm"
+
+                    <button
                       onClick={() => handleDelete(goal.id)}
-                      className="bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 rounded-lg"
+                      className="text-red-400 hover:text-red-300 transition"
                     >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div className="mb-4">
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-[#94a3b8]">Progresso</span>
+                      <span className="text-white font-medium">{progress.toFixed(1)}%</span>
+                    </div>
+
+                    <div className="w-full h-3 bg-[#111827] rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${
+                          goal.status === 'completed'
+                            ? 'bg-green-500'
+                            : goal.status === 'cancelled'
+                              ? 'bg-gray-500'
+                              : 'bg-amber-500'
+                        }`}
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div className="rounded-xl bg-[#030b1d] border border-[#1f2a44] p-4">
+                      <p className="text-sm text-[#94a3b8] mb-1">Atual</p>
+                      <p className="text-white font-semibold">
+                        {formatCurrency(goal.current_amount, currency)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-[#030b1d] border border-[#1f2a44] p-4">
+                      <p className="text-sm text-[#94a3b8] mb-1">Alvo</p>
+                      <p className="text-white font-semibold">
+                        {formatCurrency(goal.target_amount, currency)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span
+                      className={`px-3 py-1 rounded-full text-sm font-medium ${
+                        goal.status === 'completed'
+                          ? 'bg-green-500/10 text-green-400'
+                          : goal.status === 'cancelled'
+                            ? 'bg-gray-500/10 text-gray-300'
+                            : 'bg-amber-500/10 text-amber-400'
+                      }`}
+                    >
+                      {goal.status === 'completed'
+                        ? 'Concluída'
+                        : goal.status === 'cancelled'
+                          ? 'Cancelada'
+                          : 'Ativa'}
+                    </span>
+
+                    <p className="text-sm text-[#94a3b8]">
+                      Falta: <span className="text-white font-medium">{formatCurrency(remaining, currency)}</span>
+                    </p>
                   </div>
                 </div>
               )
