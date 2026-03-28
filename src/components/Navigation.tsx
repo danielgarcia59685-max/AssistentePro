@@ -1,101 +1,145 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { usePathname } from 'next/navigation'
 import useAuth from '@/hooks/useAuth'
-import { Button } from '@/components/ui/button'
-import { Menu, X, BarChart3, FileText, DollarSign, Calendar, Target, LogOut, Settings } from 'lucide-react'
+import {
+  BarChart3,
+  Calendar,
+  CreditCard,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Settings,
+  Target,
+  Wallet,
+  X,
+} from 'lucide-react'
 
 export function Navigation() {
-  const { logout } = useAuth()
+  const pathname = usePathname()
+  const { logout, userEmail } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
 
-  const links = [
-    { href: '/dashboard', label: 'Página inicial', icon: DollarSign },
-    { href: '/transactions', label: 'Transações', icon: DollarSign },
-    { href: '/reports', label: 'Relatórios', icon: BarChart3 },
-    { href: '/bills', label: 'Contas', icon: FileText },
-    { href: '/reminders', label: 'Compromissos', icon: Calendar },
-    { href: '/goals', label: 'Metas', icon: Target },
-    { href: '/onboarding', label: 'Perfil', icon: Settings },
-  ]
+  const links = useMemo(
+    () => [
+      { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { href: '/transactions', label: 'Transações', icon: Wallet },
+      { href: '/bills', label: 'Contas', icon: CreditCard },
+      { href: '/reminders', label: 'Compromissos', icon: Calendar },
+      { href: '/goals', label: 'Metas', icon: Target },
+      { href: '/reports', label: 'Relatórios', icon: BarChart3 },
+      { href: '/onboarding', label: 'Perfil', icon: Settings },
+    ],
+    [],
+  )
 
   return (
-    <nav className="bg-gray-900 text-gray-200 shadow-lg border-b border-gray-800 sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6">
-        <div className="flex justify-between items-center h-20">
-          <Link href="/dashboard" className="flex items-center gap-3 group">
-            <div className="w-10 h-10 rounded-lg overflow-hidden shadow-lg group-hover:shadow-amber-600/50 group-hover:shadow-2xl transition-all bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center border border-gray-700">
+    <nav className="sticky top-0 z-50 border-b border-white/5 bg-[#050816]/80 text-slate-100 backdrop-blur-xl">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6">
+        <div className="flex min-h-20 items-center justify-between gap-4 py-4">
+          <Link href="/dashboard" className="group flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-blue-500/20 to-purple-500/20 shadow-lg shadow-purple-500/10">
               <Image
                 src="/logo.png"
                 alt="AssistentePro"
-                width={32}
-                height={32}
-                className="w-8 h-8 object-contain"
+                width={34}
+                height={34}
+                className="h-8 w-8 object-contain"
                 priority
               />
             </div>
+
             <div className="hidden sm:block">
-              <p className="font-bold text-lg text-white">
-                Assistente<span className="text-amber-600">Pro</span>
+              <p className="text-lg font-bold text-white">
+                Assistente<span className="text-gradient-premium">Pro</span>
               </p>
-              <p className="text-xs text-gray-500">assistente pessoal</p>
+              <p className="text-xs text-slate-400">premium fintech dark</p>
             </div>
           </Link>
 
-          <div className="hidden md:flex items-center gap-1">
-            {links.map(({ href, label, icon: Icon }) => (
-              <Link
-                key={href}
-                href={href}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-400 hover:text-amber-600 hover:bg-gray-800/50 rounded-lg transition-all duration-200"
-              >
-                <Icon className="w-4 h-4" />
-                {label}
-              </Link>
-            ))}
+          <div className="hidden xl:flex items-center gap-2 rounded-2xl border border-white/5 bg-white/5 p-1.5">
+            {links.map(({ href, label, icon: Icon }) => {
+              const active = pathname === href
+
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  className={[
+                    'flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-medium transition-all duration-200',
+                    active
+                      ? 'border border-blue-400/20 bg-gradient-to-r from-blue-500/20 to-purple-500/20 text-white shadow-[0_0_0_1px_rgba(59,130,246,0.08)]'
+                      : 'text-slate-400 hover:bg-white/5 hover:text-white',
+                  ].join(' ')}
+                >
+                  <Icon className="h-4 w-4" />
+                  {label}
+                </Link>
+              )
+            })}
           </div>
 
-          <div className="hidden md:flex items-center gap-2">
-            <Button
+          <div className="hidden md:flex items-center gap-3">
+            <div className="hidden 2xl:block text-right">
+              <p className="text-sm font-medium text-white">Conta conectada</p>
+              <p className="max-w-[220px] truncate text-xs text-slate-400">
+                {userEmail || 'Usuário autenticado'}
+              </p>
+            </div>
+
+            <button
               onClick={logout}
-              variant="outline"
-              className="border border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-amber-600 hover:border-amber-600/50 transition-all"
+              className="premium-button-secondary px-4 py-2.5 text-sm"
             >
-              <LogOut className="w-4 h-4 mr-2" />
+              <LogOut className="mr-2 h-4 w-4" />
               Sair
-            </Button>
+            </button>
           </div>
 
           <button
-            className="md:hidden text-gray-400 hover:text-amber-600 transition-colors"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-slate-900/70 text-slate-300 transition hover:bg-slate-800/80 hover:text-white md:hidden"
             onClick={() => setIsOpen(!isOpen)}
+            aria-label="Abrir menu"
           >
-            {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
         </div>
 
         {isOpen && (
-          <div className="md:hidden pb-4 space-y-2 border-t border-gray-800 pt-4">
-            {links.map(({ href, label, icon: Icon }) => (
-              <Link
-                key={href}
-                href={href}
-                className="flex items-center gap-2 px-4 py-3 text-sm text-gray-400 hover:text-amber-600 hover:bg-gray-800/50 rounded transition-all"
-                onClick={() => setIsOpen(false)}
+          <div className="md:hidden pb-4">
+            <div className="premium-panel-soft space-y-2 p-3">
+              {links.map(({ href, label, icon: Icon }) => {
+                const active = pathname === href
+
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    className={[
+                      'flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition-all',
+                      active
+                        ? 'bg-gradient-to-r from-blue-500/20 to-purple-500/20 text-white'
+                        : 'text-slate-400 hover:bg-white/5 hover:text-white',
+                    ].join(' ')}
+                    onClick={() => setIsOpen(false)}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {label}
+                  </Link>
+                )
+              })}
+
+              <button
+                onClick={logout}
+                className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-slate-400 transition-all hover:bg-white/5 hover:text-white"
               >
-                <Icon className="w-4 h-4" />
-                {label}
-              </Link>
-            ))}
-            <button
-              onClick={logout}
-              className="w-full text-left px-4 py-3 text-sm text-gray-400 hover:text-amber-600 hover:bg-gray-800/50 rounded transition-all flex items-center gap-2"
-            >
-              <LogOut className="w-4 h-4" />
-              Sair
-            </button>
+                <LogOut className="h-4 w-4" />
+                Sair
+              </button>
+            </div>
           </div>
         )}
       </div>
