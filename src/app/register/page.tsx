@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,7 +18,7 @@ export default function RegisterPage() {
   const [success, setSuccess] = useState('')
   const router = useRouter()
 
-  const handleRegister = async (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setError('')
     setSuccess('')
@@ -28,17 +29,14 @@ export default function RegisterPage() {
 
       if (password !== confirmPassword) {
         setError('As senhas não coincidem')
-        setLoading(false)
         return
       }
 
       if (!supabase) {
         setError('Supabase não configurado')
-        setLoading(false)
         return
       }
 
-      // Registrar via Supabase Auth
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
@@ -48,27 +46,37 @@ export default function RegisterPage() {
         if (signUpError.message.toLowerCase().includes('already registered')) {
           setError('Este email já está cadastrado')
         } else {
-          setError('Erro ao registrar: ' + signUpError.message)
+          setError(`Erro ao registrar: ${signUpError.message}`)
         }
-        setLoading(false)
         return
       }
 
-      // Se usuário criado, garantir perfil na tabela `users`
       const userId = signUpData?.user?.id
+
       if (userId) {
         const fallbackName = normalizedEmail.split('@')[0] || 'Usuário'
-        await supabase
-          .from('users')
-          .upsert([{ id: userId, email: normalizedEmail, name: fallbackName }])
+
+        const { error: profileError } = await supabase.from('users').upsert([
+          {
+            id: userId,
+            email: normalizedEmail,
+            name: fallbackName,
+          },
+        ])
+
+        if (profileError) {
+          throw profileError
+        }
       }
 
       setSuccess('Conta criada com sucesso! Verifique seu email se necessário. Redirecionando...')
+
       setTimeout(() => {
         router.push('/login')
       }, 1500)
-    } catch (err: any) {
-      setError(err.message || 'Erro ao registrar')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Erro ao registrar'
+      setError(message)
     } finally {
       setLoading(false)
     }
@@ -76,16 +84,13 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen bg-black flex items-center justify-center p-4">
-      {/* Background effect */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 right-20 w-96 h-96 bg-amber-600/5 blur-3xl rounded-full"></div>
-        <div className="absolute bottom-20 left-20 w-96 h-96 bg-amber-600/5 blur-3xl rounded-full"></div>
+        <div className="absolute top-20 right-20 w-96 h-96 bg-amber-600/5 blur-3xl rounded-full" />
+        <div className="absolute bottom-20 left-20 w-96 h-96 bg-amber-600/5 blur-3xl rounded-full" />
       </div>
 
-      {/* Register Card */}
       <div className="w-full max-w-md relative z-10">
         <div className="bg-gray-900 rounded-3xl border border-gray-800 p-8 shadow-2xl">
-          {/* Logo */}
           <div className="flex justify-center mb-8">
             <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-lg shadow-amber-600/20">
               <img
@@ -96,13 +101,10 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          {/* Title */}
           <h1 className="text-3xl font-bold text-white text-center mb-2">AssistentePro</h1>
           <p className="text-gray-400 text-center mb-8">Crie sua conta</p>
 
-          {/* Form */}
           <form onSubmit={handleRegister} className="space-y-6">
-            {/* Error Alert */}
             {error && (
               <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
@@ -110,7 +112,6 @@ export default function RegisterPage() {
               </div>
             )}
 
-            {/* Success Alert */}
             {success && (
               <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4 flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
@@ -118,7 +119,6 @@ export default function RegisterPage() {
               </div>
             )}
 
-            {/* Email Field */}
             <div className="space-y-3">
               <Label htmlFor="email" className="text-gray-300 font-medium">
                 Email
@@ -134,7 +134,6 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* Password Field */}
             <div className="space-y-3">
               <Label htmlFor="password" className="text-gray-300 font-medium">
                 Senha
@@ -151,7 +150,6 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* Confirm Password Field */}
             <div className="space-y-3">
               <Label htmlFor="confirmPassword" className="text-gray-300 font-medium">
                 Confirme a Senha
@@ -168,7 +166,6 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* Register Button */}
             <Button
               type="submit"
               disabled={loading}
@@ -178,22 +175,20 @@ export default function RegisterPage() {
               {!loading && <ArrowRight className="w-4 h-4" />}
             </Button>
 
-            {/* Login Link */}
             <div className="text-center pt-4 border-t border-gray-800">
               <p className="text-gray-400 text-sm">
                 Já tem conta?{' '}
-                <a
+                <Link
                   href="/login"
                   className="text-amber-600 hover:text-amber-500 font-semibold transition-colors"
                 >
                   Faça login
-                </a>
+                </Link>
               </p>
             </div>
           </form>
         </div>
 
-        {/* Footer */}
         <p className="text-center text-gray-500 text-xs mt-8">
           © 2026 AssistentePro. Todos os direitos reservados.
         </p>
