@@ -1,9 +1,18 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import {
+  ArrowDownCircle,
+  ArrowUpCircle,
+  CalendarClock,
+  CreditCard,
+  DollarSign,
+  Sparkles,
+  Wallet,
+} from 'lucide-react'
 import { Navigation } from '@/components/Navigation'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { AppStatCard } from '@/components/AppStatCard'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { formatCurrencyBRL } from '@/lib/format'
@@ -24,9 +33,9 @@ type Reminder = {
   title: string
   description: string | null
   reminder_type: string | null
-  due_date: string | null // text YYYY-MM-DD
-  due_time: string | null // text HH:mm
-  status: string | null // pending, done, etc
+  due_date: string | null
+  due_time: string | null
+  status: string | null
   send_notification: boolean | null
   created_at?: string | null
 }
@@ -36,8 +45,8 @@ type AccountPayable = {
   user_id: string
   supplier_name: string | null
   amount: number | null
-  due_date: string | null // text YYYY-MM-DD
-  status: string | null // pending, paid, etc
+  due_date: string | null
+  status: string | null
   payment_method?: string | null
   payment_date?: string | null
   description?: string | null
@@ -55,6 +64,11 @@ function addDays(date: Date, days: number) {
   const d = new Date(date)
   d.setDate(d.getDate() + days)
   return d
+}
+
+function formatDateBR(value?: string | null) {
+  if (!value) return '-'
+  return new Date(value).toLocaleDateString('pt-BR')
 }
 
 export default function DashboardPage() {
@@ -77,10 +91,8 @@ export default function DashboardPage() {
     return { weekStart: toYMD(start), weekEnd: toYMD(end) }
   }, [])
 
-  // Busca email (client-side)
   useEffect(() => {
-    if (!userId) return
-    if (!supabase) return
+    if (!userId || !supabase) return
 
     supabase
       .from('users')
@@ -92,16 +104,11 @@ export default function DashboardPage() {
       })
   }, [userId])
 
-  // Busca transações, resumo do mês, contas da semana e compromissos da semana
   useEffect(() => {
-    if (authLoading || !userId) return
-    if (!supabase) return
-
-    const sb = supabase
+    if (authLoading || !userId || !supabase) return
 
     const fetchData = async () => {
-      // 1) Últimas 10 transações
-      const { data: txData, error: txError } = await sb
+      const { data: txData, error: txError } = await supabase
         .from('transactions')
         .select('*')
         .eq('user_id', userId)
@@ -110,14 +117,13 @@ export default function DashboardPage() {
 
       if (!txError && txData) setTransactions(txData as Transaction[])
 
-      // 2) Resumo do mês
       const now = new Date()
       const yyyy = now.getFullYear()
       const mm = String(now.getMonth() + 1).padStart(2, '0')
       const start = `${yyyy}-${mm}-01`
       const end = `${yyyy}-${mm}-31`
 
-      const { data: allMonth, error: monthError } = await sb
+      const { data: allMonth, error: monthError } = await supabase
         .from('transactions')
         .select('amount, type')
         .eq('user_id', userId)
@@ -128,20 +134,29 @@ export default function DashboardPage() {
         let income = 0
         let expense = 0
 
-        for (const tx of allMonth as Array<{ amount: any; type: any }>) {
+        for (const tx of allMonth as Array<{ amount: number; type: 'income' | 'expense' }>) {
           if (tx.type === 'income') income += Number(tx.amount) || 0
-          else if (tx.type === 'expense') expense += Number(tx.amount) || 0
+          if (tx.type === 'expense') expense += Number(tx.amount) || 0
         }
 
-        setCurrentMonthSummary({ income, expense, balance: income - expense })
+        setCurrentMonthSummary({
+          income,
+          expense,
+          balance: income - expense,
+        })
       } else {
-        setCurrentMonthSummary({ income: 0, expense: 0, balance: 0 })
+        setCurrentMonthSummary({
+          income: 0,
+          expense: 0,
+          balance: 0,
+        })
       }
 
-      // 3) Compromissos da semana (reminders)
-      const { data: remData, error: remError } = await sb
+      const { data: remData, error: remError } = await supabase
         .from('reminders')
-        .select('id, user_id, title, description, reminder_type, due_date, due_time, status, send_notification, created_at')
+        .select(
+          'id, user_id, title, description, reminder_type, due_date, due_time, status, send_notification, created_at',
+        )
         .eq('user_id', userId)
         .eq('status', 'pending')
         .gte('due_date', weekStart)
@@ -153,10 +168,11 @@ export default function DashboardPage() {
       if (!remError && remData) setWeekReminders(remData as Reminder[])
       else setWeekReminders([])
 
-      // 4) Contas da semana (accounts_payable)
-      const { data: apData, error: apError } = await sb
+      const { data: apData, error: apError } = await supabase
         .from('accounts_payable')
-        .select('id, user_id, supplier_name, amount, due_date, status, payment_method, payment_date, description, created_at')
+        .select(
+          'id, user_id, supplier_name, amount, due_date, status, payment_method, payment_date, description, created_at',
+        )
         .eq('user_id', userId)
         .eq('status', 'pending')
         .gte('due_date', weekStart)
@@ -172,218 +188,228 @@ export default function DashboardPage() {
   }, [authLoading, userId, weekStart, weekEnd])
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-app">
       <Navigation />
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <h1 className="text-4xl font-bold text-white mb-2">Página inicial</h1>
-        <p className="text-gray-300 mb-8">
-          Bem-vindo ao AssistentePro{userEmail ? ` (${userEmail})` : ''}
-        </p>
 
-        {/* Resumo financeiro */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card>
-            <CardHeader>
-              <CardTitle>Receitas</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-500">
-                {formatCurrencyBRL(currentMonthSummary.income)}
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        <section className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="premium-chip mb-4">
+              <Sparkles className="mr-2 h-3.5 w-3.5" />
+              Visão geral financeira
+            </div>
+
+            <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+              Dashboard
+            </h1>
+            <p className="mt-2 text-sm text-slate-400 sm:text-base">
+              Bem-vindo ao AssistentePro{userEmail ? ` (${userEmail})` : ''}. Aqui está o resumo
+              financeiro do seu período atual.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <Link href="/transactions" className="premium-button">
+              Nova transação
+            </Link>
+            <Link href="/reports" className="premium-button-secondary">
+              Ver relatórios
+            </Link>
+          </div>
+        </section>
+
+        <section className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <AppStatCard
+            title="Saldo atual"
+            value={formatCurrencyBRL(currentMonthSummary.balance)}
+            subtitle="Receitas menos despesas no mês"
+            icon={Wallet}
+            valueClassName="text-white"
+          />
+          <AppStatCard
+            title="Receitas"
+            value={formatCurrencyBRL(currentMonthSummary.income)}
+            subtitle="Entradas confirmadas no mês atual"
+            icon={ArrowUpCircle}
+            valueClassName="text-emerald-400"
+          />
+          <AppStatCard
+            title="Despesas"
+            value={formatCurrencyBRL(currentMonthSummary.expense)}
+            subtitle="Saídas registradas no mês atual"
+            icon={ArrowDownCircle}
+            valueClassName="text-rose-400"
+          />
+          <AppStatCard
+            title="Resultado do mês"
+            value={formatCurrencyBRL(currentMonthSummary.balance)}
+            subtitle={
+              currentMonthSummary.balance >= 0
+                ? 'Seu mês está com saldo positivo'
+                : 'Seu mês está com saldo negativo'
+            }
+            icon={DollarSign}
+            valueClassName={
+              currentMonthSummary.balance >= 0 ? 'text-amber-400' : 'text-red-400'
+            }
+          />
+        </section>
+
+        <section className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="premium-panel p-6">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-white">Contas da semana</h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Vencimentos de {formatDateBR(weekStart)} até {formatDateBR(weekEnd)}
+                </p>
               </div>
-              <div className="text-sm text-gray-400">Mês atual</div>
-            </CardContent>
-          </Card>
+              <span className="premium-chip-warning">Próximos 7 dias</span>
+            </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Despesas</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-red-500">
-                {formatCurrencyBRL(currentMonthSummary.expense)}
-              </div>
-              <div className="text-sm text-gray-400">Mês atual</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Saldo</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-amber-500">
-                {formatCurrencyBRL(currentMonthSummary.balance)}
-              </div>
-              <div className="text-sm text-gray-400">Receitas - Despesas</div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Semana: Contas + Compromissos */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
-          {/* Contas da semana */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Contas da semana</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-gray-400 mb-4">
-                Vencimentos de {new Date(weekStart).toLocaleDateString('pt-BR')} até{' '}
-                {new Date(weekEnd).toLocaleDateString('pt-BR')}
-              </p>
-
-              {weekPayables.length === 0 ? (
-                <div className="text-gray-500 py-8 text-center">
-                  Nenhuma conta pendente para os próximos 7 dias.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {weekPayables.map((b) => (
-                    <div
-                      key={b.id}
-                      className="flex items-center justify-between gap-4 border border-gray-800 rounded-lg px-4 py-3 bg-gray-950"
-                    >
-                      <div className="min-w-0">
-                        <div className="text-white font-medium truncate">
-                          {b.supplier_name || 'Conta'}
-                        </div>
-                        <div className="text-xs text-gray-400">
-                          Vence em:{' '}
-                          {b.due_date ? new Date(b.due_date).toLocaleDateString('pt-BR') : '-'}
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <div className="text-white font-semibold">
-                          {formatCurrencyBRL(Number(b.amount || 0))}
-                        </div>
-                        <div className="text-xs text-amber-400">pendente</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="mt-4 flex justify-end">
-                <Button asChild variant="secondary">
-                  <a href="/bills">Ver todas</a>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Compromissos da semana */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Compromissos da semana</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-gray-400 mb-4">
-                Pendentes de {new Date(weekStart).toLocaleDateString('pt-BR')} até{' '}
-                {new Date(weekEnd).toLocaleDateString('pt-BR')}
-              </p>
-
-              {weekReminders.length === 0 ? (
-                <div className="text-gray-500 py-8 text-center">
-                  Nenhum compromisso pendente para os próximos 7 dias.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {weekReminders.map((r) => (
-                    <div
-                      key={r.id}
-                      className="flex items-center justify-between gap-4 border border-gray-800 rounded-lg px-4 py-3 bg-gray-950"
-                    >
-                      <div className="min-w-0">
-                        <div className="text-white font-medium truncate">{r.title}</div>
-                        <div className="text-xs text-gray-400">
-                          {r.due_date ? new Date(r.due_date).toLocaleDateString('pt-BR') : '-'}
-                          {r.due_time ? ` • ${r.due_time}` : ''}
-                          {r.reminder_type ? ` • ${r.reminder_type}` : ''}
-                        </div>
-                        {r.description ? (
-                          <div className="text-xs text-gray-500 truncate mt-1">{r.description}</div>
-                        ) : null}
-                      </div>
-
-                      <div className="text-right">
-                        <div className="text-xs text-amber-400">pendente</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="mt-4 flex justify-end">
-                <Button asChild variant="secondary">
-                  <a href="/reminders">Ver todos</a>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Transações Recentes */}
-        <section className="mb-10">
-          <h2 className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
-            <span role="img" aria-label="clock">
-              🕒
-            </span>
-            Transações Recentes
-          </h2>
-          <p className="text-gray-400 mb-4">Últimas 10 transações registradas</p>
-
-          <div className="bg-gray-900 rounded-lg p-4 max-w-full">
-            {transactions.length === 0 ? (
-              <div className="text-gray-500 text-center py-10">
-                Nenhuma transação registrada ainda.
-                <br />
-                Clique em &quot;Nova Transação&quot; para começar!
+            {weekPayables.length === 0 ? (
+              <div className="premium-panel-soft px-4 py-10 text-center text-slate-500">
+                Nenhuma conta pendente para os próximos 7 dias.
               </div>
             ) : (
+              <div className="space-y-3">
+                {weekPayables.map((bill) => (
+                  <div
+                    key={bill.id}
+                    className="premium-panel-soft flex items-center justify-between gap-4 p-4"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-white">
+                        {bill.supplier_name || 'Conta'}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Vence em {formatDateBR(bill.due_date)}
+                      </p>
+                    </div>
+
+                    <div className="text-right">
+                      <p className="font-semibold text-white">
+                        {formatCurrencyBRL(Number(bill.amount || 0))}
+                      </p>
+                      <span className="premium-chip-warning mt-2">pendente</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-5 flex justify-end">
+              <Link href="/bills" className="premium-button-secondary px-4 py-2.5 text-sm">
+                Ver todas
+              </Link>
+            </div>
+          </div>
+
+          <div className="premium-panel p-6">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-white">Compromissos da semana</h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Pendentes de {formatDateBR(weekStart)} até {formatDateBR(weekEnd)}
+                </p>
+              </div>
+              <span className="premium-chip">Agenda ativa</span>
+            </div>
+
+            {weekReminders.length === 0 ? (
+              <div className="premium-panel-soft px-4 py-10 text-center text-slate-500">
+                Nenhum compromisso pendente para os próximos 7 dias.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {weekReminders.map((reminder) => (
+                  <div
+                    key={reminder.id}
+                    className="premium-panel-soft flex items-center justify-between gap-4 p-4"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-white">{reminder.title}</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {formatDateBR(reminder.due_date)}
+                        {reminder.due_time ? ` • ${reminder.due_time}` : ''}
+                        {reminder.reminder_type ? ` • ${reminder.reminder_type}` : ''}
+                      </p>
+
+                      {reminder.description ? (
+                        <p className="mt-1 truncate text-xs text-slate-500">
+                          {reminder.description}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div className="shrink-0">
+                      <span className="premium-chip-warning">pendente</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-5 flex justify-end">
+              <Link href="/reminders" className="premium-button-secondary px-4 py-2.5 text-sm">
+                Ver todos
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        <section className="premium-panel p-6">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="flex items-center gap-2 text-xl font-semibold text-white">
+                <CalendarClock className="h-5 w-5 text-blue-300" />
+                Transações recentes
+              </h2>
+              <p className="mt-1 text-sm text-slate-400">Últimas 10 transações registradas</p>
+            </div>
+
+            <Link href="/transactions" className="premium-button-secondary px-4 py-2.5 text-sm">
+              Abrir transações
+            </Link>
+          </div>
+
+          {transactions.length === 0 ? (
+            <div className="premium-panel-soft px-4 py-12 text-center">
+              <p className="text-slate-400">Nenhuma transação registrada ainda.</p>
+              <p className="mt-2 text-sm text-slate-500">
+                Clique em <span className="text-white">Nova transação</span> para começar.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr className="text-gray-400">
-                    <th className="py-2 text-left">Data</th>
-                    <th className="py-2 text-left">Descrição</th>
-                    <th className="py-2 text-left">Categoria</th>
-                    <th className="py-2 text-left">Valor</th>
+                  <tr className="border-b border-white/10 text-left text-slate-400">
+                    <th className="px-2 py-3 font-medium">Data</th>
+                    <th className="px-2 py-3 font-medium">Descrição</th>
+                    <th className="px-2 py-3 font-medium">Categoria</th>
+                    <th className="px-2 py-3 font-medium text-right">Valor</th>
                   </tr>
                 </thead>
                 <tbody>
                   {transactions.map((tx) => (
-                    <tr
-                      key={tx.id}
-                      className="border-b border-gray-800 last:border-b-0"
-                    >
-                      <td className="py-2">
-                        {new Date(tx.date).toLocaleDateString('pt-BR')}
-                      </td>
-                      <td className="py-2">{tx.description}</td>
-                      <td className="py-2">{tx.category}</td>
-                      <td
-                        className="py-2 font-semibold"
-                        style={{
-                          color: tx.type === 'income' ? '#22c55e' : '#fb7185',
-                        }}
-                      >
-                        {tx.type === 'income' ? '+' : '-'}
-                        {formatCurrencyBRL(Math.abs(Number(tx.amount)))}
+                    <tr key={tx.id} className="border-b border-white/5 last:border-b-0">
+                      <td className="px-2 py-4 text-slate-300">{formatDateBR(tx.date)}</td>
+                      <td className="px-2 py-4 text-white">{tx.description || '-'}</td>
+                      <td className="px-2 py-4 text-slate-400">{tx.category || '-'}</td>
+                      <td className="px-2 py-4 text-right font-semibold">
+                        <span className={tx.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}>
+                          {tx.type === 'income' ? '+' : '-'}
+                          {formatCurrencyBRL(Math.abs(Number(tx.amount)))}
+                        </span>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            )}
-          </div>
+            </div>
+          )}
         </section>
-
-        <Button
-          asChild
-          className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-xl flex items-center gap-2 mt-4"
-        >
-          <a href="/transactions">Nova Transação</a>
-        </Button>
       </main>
     </div>
   )
