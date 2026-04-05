@@ -104,7 +104,7 @@ export default function LoginPage() {
     })
 
     if (resendError) {
-      setError('Erro ao reenviar confirmação: ' + resendError.message)
+      setError(`Erro ao reenviar confirmação: ${resendError.message}`)
       return
     }
 
@@ -114,18 +114,18 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-black flex items-center justify-center p-4">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 right-20 w-96 h-96 bg-amber-600/5 blur-3xl rounded-full"></div>
-        <div className="absolute bottom-20 left-20 w-96 h-96 bg-amber-600/5 blur-3xl rounded-full"></div>
+        <div className="absolute top-20 right-20 w-96 h-96 bg-amber-600/5 blur-3xl rounded-full" />
+        <div className="absolute bottom-20 left-20 w-96 h-96 bg-amber-600/5 blur-3xl rounded-full" />
       </div>
 
       <div className="w-full max-w-md relative z-10">
         <div className="bg-gray-900 rounded-3xl border border-gray-800 p-8 shadow-2xl">
           <div className="flex justify-center mb-8">
-            <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-lg shadow-amber-600/20">
+            <div className="w-20 h-20 rounded-2xl overflow-hidden shadow-lg shadow-amber-600/20 bg-gray-900 flex items-center justify-center">
               <img
                 src="/logo.png"
                 alt="AssistentePro"
-                className="w-full h-full object-cover"
+                className="w-full h-full object-contain"
               />
             </div>
           </div>
